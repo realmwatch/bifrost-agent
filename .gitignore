@@ -31,3 +31,13 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Built binaries and release output
+/bin/
+/dist/
+/bifrost-agent
+
+# Local agent state and config: never commit keys, enrollment tokens or host data.
+*.pem
+*.key
+/bifrost-agent.toml
