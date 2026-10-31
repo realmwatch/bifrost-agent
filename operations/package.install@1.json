@@ -1,0 +1,38 @@
+{
+  "name": "package.install",
+  "version": 1,
+  "description": "Install one package at an exact version, downgrading if needed. The rollback for package.upgrade.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["name", "version"],
+    "properties": {
+      "name": {"type": "string", "description": "Package name.", "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$", "minLength": 1, "maxLength": 128},
+      "version": {"type": "string", "description": "Exact version to install, as the package manager prints it.", "pattern": "^[0-9][A-Za-z0-9.+~:_-]*$", "minLength": 1, "maxLength": 128}
+    }
+  },
+  "rollback": null,
+  "irreversible": false,
+  "health_check": "The package is installed at the requested version.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": ["/usr/bin/apt-get", "-q", "-y", "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold", "install", "--allow-downgrades", "{name}={version}"],
+      "dnf": ["/usr/bin/dnf", "-y", "install", "{name}-{version}"]
+    },
+    "dry_run_argv": {
+      "apt": ["/usr/bin/apt-get", "-s", "install", "--allow-downgrades", "{name}={version}"],
+      "dnf": ["/usr/bin/dnf", "-C", "--assumeno", "install", "{name}-{version}"]
+    },
+    "env": {
+      "apt": {"DEBIAN_FRONTEND": "noninteractive"}
+    },
+    "sudo": {
+      "apt": "/usr/bin/apt-get -q -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold install --allow-downgrades *",
+      "dnf": "/usr/bin/dnf -y install *"
+    },
+    "health": {"check": "package_version", "args": {"name": "{name}", "version": "{version}"}}
+  }
+}

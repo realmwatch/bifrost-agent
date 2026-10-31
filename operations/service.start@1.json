@@ -1,0 +1,30 @@
+{
+  "name": "service.start",
+  "version": 1,
+  "description": "Start one systemd service.",
+  "min_tier": "low",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["unit"],
+    "properties": {
+      "unit": {"type": "string", "description": "systemd service unit, ending in .service.", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_.@-]*\\.service$", "minLength": 9, "maxLength": 128}
+    }
+  },
+  "rollback": "service.stop",
+  "irreversible": false,
+  "health_check": "The unit's ActiveState is active after the start.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": ["/usr/bin/systemctl", "start", "{unit}"],
+      "dnf": ["/usr/bin/systemctl", "start", "{unit}"]
+    },
+    "sudo": {
+      "apt": "/usr/bin/systemctl start *",
+      "dnf": "/usr/bin/systemctl start *"
+    },
+    "health": {"check": "service_state", "args": {"unit": "{unit}", "state": "active"}}
+  }
+}
