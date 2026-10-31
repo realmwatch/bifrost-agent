@@ -1,0 +1,11 @@
+{
+  "hub_url": "https://bifrost.example.com",
+  "state_dir": "/tmp/bifrost-agent-dev/state",
+  "trusted_keys_path": "/tmp/bifrost-agent-dev/trusted-keys.json",
+  "poll_interval_seconds": 5,
+  "heartbeat_interval_seconds": 60,
+  "simulate": true,
+  "package_manager": "auto",
+  "use_sudo": false,
+  "insecure_skip_tls_verify": false
+}
