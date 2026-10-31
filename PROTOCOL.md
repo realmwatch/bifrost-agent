@@ -1,6 +1,6 @@
 # Protocol
 
-The contract between the hub, the agent and the approver app. Version 1. Both repositories keep a copy of this file; change both together.
+The contract between the hub, the agent and the approver app. Version 1. The `bifrost-hub`, `bifrost-agent` and `bifrost-approver` repositories each keep a copy of this file; change all three together.
 
 All JSON is UTF-8. Times are RFC 3339 UTC (`2026-11-01T00:00:00Z`). `b64u` means base64url without padding. Ids are ULIDs unless noted.
 
@@ -10,7 +10,7 @@ The agent makes HTTPS requests to the hub; the hub never connects to the agent. 
 
 - Base path: `{hub}/api/agent/v1`.
 - Auth: `Authorization: Bearer <agent token>`, issued once at enrollment. The hub stores only its SHA-256.
-- Errors: non-2xx with `{"error": "<code>", "message": "..."}`. `401` means the token is revoked: the agent stops and logs it.
+- Errors: non-2xx with `{"error": "<code>", "message": "..."}`. Codes: `401 unauthorized` (unknown token) and `401 revoked`, on which the agent stops and logs it; `403 invalid_enrollment_key`; `404` for an execution or query that isn't this agent's or wasn't dispatched; `422 validation_failed` with an extra `errors` object.
 
 ### `POST /enroll` (no bearer)
 
@@ -77,11 +77,13 @@ Body: `{"events": [ {event}, ... ]}`, in order. Each event has `seq` (per execut
 | `step_started` | `phase`: `operations` or `rollback`; `index`; `op` (`name@version`); `argv` (the exact argument list) |
 | `output` | `phase`, `index`, `stream` (`stdout` or `stderr`), `data` (text chunk) |
 | `step_finished` | `phase`, `index`, `exit_code`, `duration_ms` |
-| `health` | `index`, `ok`, `detail` |
+| `health` | `phase`, `index`, `ok`, `detail` |
 | `files_written` | `index`, `files`: `[{"path": "...", "sha256": "..."}]` |
 | `finished` | `result`: `succeeded`, `failed`, `rolled_back` or `rejected`; `before` and `after` (optional state snapshots) |
 
-The agent batches events and sends at least every second while running.
+The agent batches events and sends at least every second while running. Ingestion is idempotent by `seq`. Response `200`: `{"ok": true, "accepted": <count of new events>}`.
+
+`rolled_back` means every rollback step and its health check succeeded; if a rollback step fails the result is `failed`. Executions handed to an agent that shuts down before starting them are reported `rejected` with reason `agent shut down before running it`.
 
 ### `POST /queries/{id}/result`
 
@@ -157,7 +159,7 @@ The thing that gets approved. The hub builds it once, when a proposal reaches `a
 }
 ```
 
-`hash = SHA-256(envelope bytes)`. `intent` and `risk_tier` are the hub's words: the approver app labels them as such, and the agent ignores them.
+`hash = SHA-256(envelope bytes)`. The hub encodes the envelope with unescaped slashes and Unicode, never emits duplicate keys, writes empty `params` as `{}`, and uses second-precision times. `intent` and `risk_tier` are the hub's words: the approver app labels them as such, and the agent ignores them.
 
 ## Approvals
 
@@ -172,7 +174,7 @@ Each item in `approvals`:
 
 The approver app calls `navigator.credentials.get` with `challenge = hash` and `userVerification: "required"`. A passkey approval is valid when, for a trusted passkey key with that `key_id`:
 
-1. `client_data_json` parses with `type == "webauthn.get"`, `challenge == b64u(hash)`, and `origin` equal to the trusted key's `origin`.
+1. `client_data_json` parses with `type == "webauthn.get"`, `challenge == b64u(hash)`, `origin` equal to the trusted key's `origin`, and `crossOrigin` absent or false.
 2. `authenticator_data[0:32] == SHA-256(rp_id)`, and its flags have user presence (`0x01`) and user verification (`0x04`).
 3. `signature` verifies over `authenticator_data || SHA-256(client_data_json)` with the key's algorithm: ES256 (COSE `-7`, ASN.1 ECDSA P-256 with SHA-256), EdDSA (`-8`, Ed25519) or RS256 (`-257`, PKCS#1 v1.5 with SHA-256).
 
@@ -194,16 +196,16 @@ The agent reads its trusted keys from a local file (default `/etc/bifrost-agent/
 
 In order; the first failure is a `rejected` event and nothing runs.
 
-1. The envelope parses, `v == 1`, `kind == "bifrost.envelope"`.
+1. The envelope parses with no duplicate object keys at any depth (`duplicate JSON key`) and no unknown fields, `v == 1`, `kind == "bifrost.envelope"`, and `nonce` is exactly 64 lowercase hex characters. The trusted keys file is parsed the same strict way.
 2. Its own machine id is in `hosts`.
 3. Now is after `not_before` (if set) and before `expires_at`.
 4. The nonce hasn't been seen (the agent keeps seen nonces until their envelope expires).
 5. Every operation and rollback step is compiled into this agent, and its params match the schema.
 6. No operation hits a deny rule compiled into the agent.
-7. Approvals satisfy the agent's own rules, with the tier taken from the agent's compiled `min_tier` of each operation (never the envelope's `risk_tier`):
+7. Approvals satisfy the agent's own rules, with the tier taken from the agent's compiled `min_tier` of each operation and rollback step (never the envelope's `risk_tier`):
    - at least one valid passkey approval, from a key in the trusted file;
    - `critical`: valid passkey approvals from two different `owner`s;
-   - a policy approval alone is enough only if every operation is in the agent's compiled auto-approval list.
+   - a policy approval alone is enough only if every operation and rollback step is in the agent's compiled auto-approval list (v0.1: `service.restart@1`).
 
 Then it runs the operations in order. If one fails or its health check fails, it runs the rollback steps (if any) and reports `rolled_back`, otherwise `failed`.
 
