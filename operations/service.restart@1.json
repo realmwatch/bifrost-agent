@@ -1,0 +1,30 @@
+{
+  "name": "service.restart",
+  "version": 1,
+  "description": "Restart one systemd service.",
+  "min_tier": "low",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["unit"],
+    "properties": {
+      "unit": {"type": "string", "description": "systemd service unit, ending in .service.", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_.@-]*\\.service$", "minLength": 9, "maxLength": 128}
+    }
+  },
+  "rollback": null,
+  "irreversible": false,
+  "health_check": "The unit's ActiveState is active after the restart.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": ["/usr/bin/systemctl", "restart", "{unit}"],
+      "dnf": ["/usr/bin/systemctl", "restart", "{unit}"]
+    },
+    "sudo": {
+      "apt": "/usr/bin/systemctl restart *",
+      "dnf": "/usr/bin/systemctl restart *"
+    },
+    "health": {"check": "service_state", "args": {"unit": "{unit}", "state": "active"}}
+  }
+}

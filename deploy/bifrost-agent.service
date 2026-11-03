@@ -1,0 +1,42 @@
+[Unit]
+Description=Bifrost agent
+Documentation=https://github.com/realmwatch/bifrost-agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bifrost
+Group=bifrost
+# journal: the journal state tool; adm: log files on Debian-family systems.
+SupplementaryGroups=systemd-journal adm
+ExecStart=/usr/local/bin/bifrost-agent run --config /etc/bifrost-agent/config.json
+Restart=on-failure
+RestartSec=10s
+# Exit 3 means the hub revoked the token: restarting would not help.
+RestartPreventExitStatus=3
+# On stop the agent finishes the running operation first (a second signal
+# exits at once), so give package upgrades time.
+TimeoutStopSec=15min
+KillMode=mixed
+
+StateDirectory=bifrost-agent
+StateDirectoryMode=0700
+UMask=0077
+
+# Sandboxing, limited on purpose. Operations run as children of this service
+# through sudo, so they inherit its namespaces and restrictions:
+#  - NoNewPrivileges (and every option that implies it for a non-root user:
+#    SystemCallFilter, RestrictNamespaces, ProtectClock, MemoryDenyWriteExecute,
+#    LockPersonality, RestrictRealtime, RestrictAddressFamilies...) would stop
+#    sudo from working at all;
+#  - ProtectSystem, ProtectHome, ReadOnlyPaths, ProtectKernelModules and
+#    ProtectKernelTunables would break package installs (which write /usr,
+#    /etc, /boot and kernel modules, and run sysctl in maintainer scripts);
+#  - PrivateTmp and PrivateDevices would hide the real /tmp and /dev from
+#    package scripts and restarted services.
+# The agent's own protection is its unprivileged user, the 0700 state
+# directory and sudo rules limited to the compiled operations.
+
+[Install]
+WantedBy=multi-user.target

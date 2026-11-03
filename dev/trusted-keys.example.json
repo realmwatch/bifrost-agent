@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "keys": [
+    {
+      "kind": "passkey",
+      "key_id": "<b64u credential id>",
+      "owner": "user:01J...",
+      "label": "Alex's phone",
+      "alg": -7,
+      "public_key": "<b64u SPKI DER>",
+      "rp_id": "approve.example.com",
+      "origin": "https://approve.example.com"
+    },
+    {
+      "kind": "policy",
+      "key_id": "policy-1",
+      "public_key": "<b64u raw 32-byte Ed25519 key>"
+    }
+  ]
+}
