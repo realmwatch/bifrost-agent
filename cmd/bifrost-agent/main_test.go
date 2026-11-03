@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,5 +91,40 @@ func TestVerifyCommand(t *testing.T) {
 	// verify never records the nonce.
 	if _, err := os.Stat(filepath.Join(dir, "nonces.json")); err == nil {
 		t.Fatal("verify wrote the nonce store")
+	}
+}
+
+func TestEnrollKeyStdinNeedsAKeyAndExcludesKey(t *testing.T) {
+	defer func(old io.Reader) { stdin = old }(stdin)
+
+	stdin = strings.NewReader("\n")
+	if code, _, errOut := runCLI("enroll", "--hub", "https://bifrost.example.com", "--key-stdin"); code != ExitUsage || !strings.Contains(errOut, "--key-stdin") {
+		t.Fatalf("empty stdin key = %d %q", code, errOut)
+	}
+
+	stdin = strings.NewReader("bfe_x\n")
+	if code, _, errOut := runCLI("enroll", "--hub", "https://bifrost.example.com", "--key", "bfe_y", "--key-stdin"); code != ExitUsage || !strings.Contains(errOut, "not both") {
+		t.Fatalf("both = %d %q", code, errOut)
+	}
+}
+
+func TestTrustedKeysCheck(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(bad, []byte(`{"v":1,"keys":[],"extra":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := runCLI("trusted-keys", "check", bad); code != ExitError || errOut == "" {
+		t.Fatalf("bad keys = %d %q", code, errOut)
+	}
+	good := filepath.Join(dir, "good.json")
+	if err := os.WriteFile(good, testkit.TrustedKeysJSON(testkit.NewApprover("user:alex")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errOut := runCLI("trusted-keys", "check", good); code != ExitOK || !strings.Contains(out, "valid trusted keys file") {
+		t.Fatalf("good keys = %d %q %q", code, out, errOut)
+	}
+	if code, _, _ := runCLI("trusted-keys", "check"); code != ExitUsage {
+		t.Fatalf("no file = %d", code)
 	}
 }
