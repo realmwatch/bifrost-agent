@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -39,7 +41,7 @@ const (
 const usage = `Usage: bifrost-agent <command> [flags]
 
 Commands:
-  enroll --hub URL --key KEY [--config PATH] [--force]
+  enroll --hub URL (--key KEY | --key-stdin) [--config PATH] [--force]
                        Enroll with a hub and save the agent token.
   run [--config PATH]  Run the agent: heartbeat, poll for work, run it.
   operations export    Print the hub-facing operations catalog (JSON).
@@ -51,8 +53,13 @@ Commands:
   verify --envelope FILE --approvals FILE [--config PATH] [--machine-id ID]
                        Run every pre-run check locally and print the result.
                        FILE holds the exact envelope bytes, or their base64url.
+  trusted-keys check FILE
+                       Check a trusted keys file the way the agent reads it.
   version              Print the agent version.
 `
+
+// stdin is where enroll --key-stdin reads the key; tests replace it.
+var stdin io.Reader = os.Stdin
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -79,6 +86,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = cmdState(rest, stdout, stderr)
 	case "verify":
 		return cmdVerify(rest, stdout, stderr)
+	case "trusted-keys":
+		err = cmdTrustedKeys(rest, stdout)
 	case "help", "-h", "--help":
 		fmt.Fprintf(stdout, usage, strings.Join(state.ToolNames(), ", "))
 		return ExitOK
@@ -129,14 +138,25 @@ func resolvePM(cfg config.Config, env *state.Env) string {
 func cmdEnroll(args []string, stdout, stderr io.Writer) error {
 	fs := newFlags("enroll", stderr)
 	hub := fs.String("hub", "", "hub base URL, for example https://bifrost.example.com")
-	key := fs.String("key", "", "enrollment key (bfe_...)")
+	key := fs.String("key", "", "enrollment key (bfe_...); prefer --key-stdin, which keeps it off the command line")
+	keyStdin := fs.Bool("key-stdin", false, "read the enrollment key from the first line of stdin")
 	cfgPath := fs.String("config", config.DefaultPath, "config file")
 	force := fs.Bool("force", false, "enroll again over an existing state file")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if *keyStdin {
+		if *key != "" {
+			return usageError{"pass --key or --key-stdin, not both"}
+		}
+		line, err := bufio.NewReader(stdin).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return fmt.Errorf("reading the enrollment key from stdin: %w", err)
+		}
+		*key = strings.TrimSpace(line)
+	}
 	if *hub == "" || *key == "" {
-		return usageError{"enroll needs --hub and --key"}
+		return usageError{"enroll needs --hub and --key (or --key-stdin)"}
 	}
 	cfg, err := config.Load(*cfgPath, true)
 	if err != nil {
@@ -160,7 +180,40 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) error {
 			log.Warn("could not write a config file; pass the hub URL in one before running", "path", *cfgPath, "err", werr)
 		}
 	}
+	if err := matchStateDirOwner(cfg.StatePath()); err != nil {
+		log.Warn("could not give the state file its directory's owner; chown it to the agent's user", "path", cfg.StatePath(), "err", err)
+	}
 	fmt.Fprintf(stdout, "enrolled: agent %s, server %s; state saved to %s\n", st.AgentID, st.ServerID, cfg.StatePath())
+	return nil
+}
+
+// matchStateDirOwner gives the state file the owner of its directory, when
+// enroll runs as root: the service's user (bifrost) owns
+// /var/lib/bifrost-agent, so a root enroll or forced re-enroll leaves a
+// state file the running service can still read.
+func matchStateDirOwner(path string) error {
+	if os.Geteuid() != 0 {
+		return nil
+	}
+	info, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil
+	}
+	return os.Chown(path, int(owner.Uid), int(owner.Gid))
+}
+
+func cmdTrustedKeys(args []string, stdout io.Writer) error {
+	if len(args) != 2 || args[0] != "check" {
+		return usageError{"usage: trusted-keys check FILE"}
+	}
+	if _, err := verify.LoadTrustedKeys(args[1]); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "ok: %s is a valid trusted keys file\n", args[1])
 	return nil
 }
 

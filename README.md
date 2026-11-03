@@ -13,12 +13,13 @@ The agent that runs on each server managed by a Bifrost hub. It dials out to the
 ## Commands
 
 ```
-bifrost-agent enroll --hub URL --key KEY [--config PATH] [--force]
+bifrost-agent enroll --hub URL (--key KEY | --key-stdin) [--config PATH] [--force]
 bifrost-agent run [--config PATH]
 bifrost-agent operations export          # hub-facing catalog JSON
 bifrost-agent operations sudoers [--user bifrost]
 bifrost-agent state <tool> [--arg key=value ...]
 bifrost-agent verify --envelope FILE --approvals FILE [--machine-id ID]
+bifrost-agent trusted-keys check FILE    # validate a trusted keys file
 bifrost-agent version
 ```
 
@@ -42,8 +43,45 @@ bifrost-agent version
 
 ## Install
 
+**Quickest:** **Servers → Add a server** in the hub gives a one-line command that runs `install.sh` from a release:
+
 ```sh
-make build-all                                   # bin/bifrost-agent-linux-{amd64,arm64}
+curl -fsSLO https://github.com/realmwatch/bifrost-agent/releases/download/vX.Y.Z/install.sh &&
+  sudo sh install.sh --hub https://bifrost.example.com --trusted-keys-b64 <from the hub> --enroll
+```
+
+Paste the enrollment key when asked; it isn't echoed or put on a command line. The installer verifies the release's Sigstore signature (with a pinned cosign, accepting only this repository's release workflow) and `SHA256SUMS`, then creates the `bifrost` user and directories, installs the binary, unit, sudoers rules and trusted keys, enrolls, and starts the service. Re-running it is an upgrade: config and enrollment are kept. Flags: `--enroll-stdin` (key on stdin), `--trusted-keys FILE`, `--version vX.Y.Z|latest`, `--from-dir DIR` (release files on disk), `--skip-signature-check` (checksums only; not advised).
+
+Many servers at once, from your machine (needs passwordless sudo):
+
+```sh
+read -rs KEY   # paste the enrollment key (it isn't shown), then Enter
+for h in web-01 web-02 web-03; do
+  printf '%s\n' "$KEY" | ssh "$h" 'cd "$(mktemp -d)" && curl -fsSLO https://github.com/realmwatch/bifrost-agent/releases/download/vX.Y.Z/install.sh && sudo sh install.sh --hub https://bifrost.example.com --trusted-keys-b64 <from the hub> --enroll-stdin'
+done
+unset KEY
+```
+
+For new VMs, cloud-init (the user data holds the key, so keep that key short-lived and limited):
+
+```yaml
+#cloud-config
+runcmd:
+  - [sh, -c, "cd /root && curl -fsSLO https://github.com/realmwatch/bifrost-agent/releases/download/vX.Y.Z/install.sh && printf '%s\n' 'bfe_...' | sh install.sh --hub https://bifrost.example.com --trusted-keys-b64 <from the hub> --enroll-stdin"]
+```
+
+To replace an agent on a server that already has one (a re-enrollment key from the server's page in the hub):
+
+```sh
+printf '%s\n' 'bfe_...' | sudo bifrost-agent enroll --hub https://bifrost.example.com --key-stdin --force && sudo systemctl restart bifrost-agent
+```
+
+Run as root, `enroll` gives `state.json` the owner of its directory (`bifrost`), so the running service can still read it.
+
+### By hand
+
+```sh
+make build-all                                   # or take the files from a release and check SHA256SUMS
 sudo install -m 0755 bin/bifrost-agent-linux-amd64 /usr/local/bin/bifrost-agent
 sudo useradd --system --home-dir /var/lib/bifrost-agent --shell /usr/sbin/nologin bifrost
 sudo install -d -m 0700 -o bifrost -g bifrost /var/lib/bifrost-agent
@@ -51,10 +89,20 @@ sudo install -d -m 0755 /etc/bifrost-agent
 sudo install -m 0644 trusted-keys.json /etc/bifrost-agent/   # exported from the hub's admin UI
 bifrost-agent operations sudoers | sudo tee /etc/sudoers.d/bifrost-agent >/dev/null
 sudo chmod 0440 /etc/sudoers.d/bifrost-agent && sudo visudo -cf /etc/sudoers.d/bifrost-agent
-sudo bifrost-agent enroll --hub https://bifrost.example.com --key bfe_...   # writes config.json if missing
-sudo chown bifrost:bifrost /var/lib/bifrost-agent/state.json
+read -rs KEY && printf '%s\n' "$KEY" | sudo bifrost-agent enroll --hub https://bifrost.example.com --key-stdin; unset KEY
 sudo install -m 0644 deploy/bifrost-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now bifrost-agent
+```
+
+## Releases
+
+`make dist VERSION=vX.Y.Z` builds the release files into `dist/`: static `bifrost-agent-linux-{amd64,arm64}` binaries (reproducible: `make reproducible`), the unit, `install.sh`, the hub-facing `catalog.json`, and `SHA256SUMS`. Pushing a `vX.Y.Z` tag (matching `internal/version`) runs `.github/workflows/release.yml`: tests and govulncheck, a reproducibility check, then a GitHub release with `SHA256SUMS` signed keylessly with Sigstore (`SHA256SUMS.sigstore.json`) and build provenance attestations. To check a release by hand:
+
+```sh
+cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/realmwatch/bifrost-agent/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum -c --ignore-missing SHA256SUMS
 ```
 
 The agent exits with status 3 when the hub revokes its token (the unit does not restart it); re-enroll with `--force`.
