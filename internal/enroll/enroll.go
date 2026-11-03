@@ -59,6 +59,9 @@ func Run(ctx context.Context, o Options) (config.State, error) {
 		EnrollmentKey: o.Key, MachineID: machineID, Hostname: hostname, OS: osInfo,
 		AgentVersion: version.Version, Operations: o.Catalog.Keys(),
 	})
+	if errors.Is(err, hubclient.ErrServerAlreadyEnrolled) {
+		return st, fmt.Errorf("enrollment refused, not retrying: %w; the hub has logged the attempt and notified its admins. To replace the agent, ask an admin for a re-enrollment key from the server's page in the hub", err)
+	}
 	if err != nil {
 		return st, fmt.Errorf("enrollment failed: %w", err)
 	}

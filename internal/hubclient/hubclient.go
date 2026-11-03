@@ -27,6 +27,10 @@ const maxResponse = 16 << 20
 // ErrUnauthorized means the hub revoked (or never issued) the token.
 var ErrUnauthorized = errors.New("hub rejected the agent token (401): it is revoked or invalid")
 
+// ErrServerAlreadyEnrolled means the hub refused enrollment (409) because the
+// server already has an active agent; only a re-enrollment key replaces it.
+var ErrServerAlreadyEnrolled = errors.New("hub refused enrollment (409 server_already_enrolled): this server already has an active agent")
+
 // HubError is a non-2xx response.
 type HubError struct {
 	Status  int
@@ -41,9 +45,16 @@ func (e *HubError) Error() string {
 	return fmt.Sprintf("hub returned %d", e.Status)
 }
 
-// Is makes errors.Is(err, ErrUnauthorized) true for 401s.
+// Is makes errors.Is(err, ErrUnauthorized) true for 401s, and
+// errors.Is(err, ErrServerAlreadyEnrolled) true for 409 server_already_enrolled.
 func (e *HubError) Is(target error) bool {
-	return target == ErrUnauthorized && e.Status == http.StatusUnauthorized
+	switch target {
+	case ErrUnauthorized:
+		return e.Status == http.StatusUnauthorized
+	case ErrServerAlreadyEnrolled:
+		return e.Status == http.StatusConflict && e.Code == "server_already_enrolled"
+	}
+	return false
 }
 
 // Client is an agent API client.

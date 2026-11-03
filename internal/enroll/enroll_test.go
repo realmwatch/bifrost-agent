@@ -3,6 +3,7 @@ package enroll
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/realmwatch/bifrost-agent/internal/catalog"
 	"github.com/realmwatch/bifrost-agent/internal/config"
+	"github.com/realmwatch/bifrost-agent/internal/hubclient"
 	"github.com/realmwatch/bifrost-agent/internal/state"
 )
 
@@ -68,5 +70,36 @@ func TestRun(t *testing.T) {
 	o.Key = ""
 	if _, err := Run(context.Background(), o); err == nil {
 		t.Fatal("empty key accepted")
+	}
+}
+
+func TestRunRefusedWhenServerAlreadyEnrolled(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"error":"server_already_enrolled","message":"this server already has an active agent"}`)
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	for p, c := range map[string]string{"etc/machine-id": "abc123\n", "etc/os-release": "ID=debian\nVERSION_ID=\"12\"\n"} {
+		_ = os.MkdirAll(filepath.Join(root, filepath.Dir(p)), 0o755)
+		_ = os.WriteFile(filepath.Join(root, p), []byte(c), 0o644)
+	}
+	cfg := config.Defaults()
+	cfg.StateDir = filepath.Join(t.TempDir(), "state")
+	_, err := Run(context.Background(), Options{
+		HubURL: srv.URL, Key: "bfe_key", Config: cfg, Catalog: catalog.MustEmbedded(),
+		Env: &state.Env{Root: root, Hostname: func() (string, error) { return "web-01", nil }},
+	})
+	if !errors.Is(err, hubclient.ErrServerAlreadyEnrolled) {
+		t.Fatalf("err = %v, want ErrServerAlreadyEnrolled", err)
+	}
+	if calls != 1 {
+		t.Fatalf("hub called %d times, want 1 (no retries)", calls)
+	}
+	if _, statErr := os.Stat(cfg.StatePath()); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("state file written after a refused enrollment: %v", statErr)
 	}
 }

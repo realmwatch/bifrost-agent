@@ -10,7 +10,7 @@ The agent makes HTTPS requests to the hub; the hub never connects to the agent. 
 
 - Base path: `{hub}/api/agent/v1`.
 - Auth: `Authorization: Bearer <agent token>`, issued once at enrollment. The hub stores only its SHA-256.
-- Errors: non-2xx with `{"error": "<code>", "message": "..."}`. Codes: `401 unauthorized` (unknown token) and `401 revoked`, on which the agent stops and logs it; `403 invalid_enrollment_key`; `404` for an execution or query that isn't this agent's or wasn't dispatched; `422 validation_failed` with an extra `errors` object.
+- Errors: non-2xx with `{"error": "<code>", "message": "..."}`. Codes: `401 unauthorized` (unknown token) and `401 revoked`, on which the agent stops and logs it; `403 invalid_enrollment_key`; `409 server_already_enrolled`, on which the agent stops trying to enroll and logs it; `404` for an execution or query that isn't this agent's or wasn't dispatched; `422 validation_failed` with an extra `errors` object.
 
 ### `POST /enroll` (no bearer)
 
@@ -26,6 +26,12 @@ The agent makes HTTPS requests to the hub; the hub never connects to the agent. 
 ```
 
 Response `201`: `{"agent_id": "...", "server_id": "...", "token": "bfa_..."}`. Enrollment keys belong to an organization; the hub creates or links the `Server` by machine id within that organization.
+
+Enrolling never silently takes over a server:
+
+- A new machine id, or a server whose agents are all revoked, enrolls with any usable key of the organization.
+- A server that has an active agent is refused with `409 server_already_enrolled`, unless the key is a **re-enrollment key** for that server. The hub logs the refused attempt (`enroll_refused`, with the key, hostname and address) and notifies the organization's admins, at most once an hour per server.
+- A re-enrollment key is issued by an admin from the server's page in the hub (or `bifrost:enrollment-key {org} {name} --server=web-01`). It is single-use, expires after an hour (`BIFROST_AGENT_REENROLL_KEY_TTL`, minutes), and is refused (`403 invalid_enrollment_key`) for any other machine id. Enrolling with it revokes the server's previous agent, is logged as `replaced` with the revoked agent ids, and notifies the admins.
 
 ### `POST /heartbeat`
 
@@ -64,7 +70,9 @@ Response `200`:
 }
 ```
 
-The hub hands out each execution and query once; it marks them `dispatched` when returned.
+The hub hands out each execution and query once; it marks them `dispatched` when returned. It holds an execution back until the proposal's `not_before` has passed (the agent refuses an early envelope anyway, see below), so a scheduled proposal stays `approved` and is handed out on the first poll after that time.
+
+Each dispatched execution gets a deadline: the dispatch time, plus a grace period (`BIFROST_EXECUTION_GRACE`, default 300 s), plus each operation and rollback step's `timeout_seconds` from the catalog, or `BIFROST_EXECUTION_STEP_TIMEOUT` (default 900 s) for a step without one. A one-step proposal with a one-step rollback therefore has 35 minutes. An execution that hasn't reported `finished` or `rejected` by its deadline is marked `timed_out` by the hub, which records a hub event with `seq` 0 (agents number theirs from 1), fails the proposal, cancels the hosts still waiting and notifies the approvers. A queued execution still not picked up when its running proposal expires times out the same way. Events the agent sends after that are accepted and stored, but never change the execution's or the proposal's state.
 
 ### `POST /executions/{id}/events`
 
@@ -128,6 +136,8 @@ The agent repository's `operations/*.json` is the source of truth: one file per 
   ]
 }
 ```
+
+`timeout_seconds` (optional, a positive integer) is how long one run of the step may take; the hub uses it for execution deadlines.
 
 The agent-only part of each definition adds `argv` per package manager (`apt`, `dnf`), with `{param}` placeholders that each fill exactly one argument and are never passed to a shell, plus `dry_run_argv` and `sudo`. Every parameter must match its schema (types, `pattern`, `enum`, `maxLength`) on both sides before use.
 
