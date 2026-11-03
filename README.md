@@ -43,7 +43,7 @@ bifrost-agent version
 
 ## Install
 
-**Quickest:** **Servers → Add a server** in the hub gives a one-line command that runs `install.sh` from a release:
+**Quickest:** Creating a key under **Fleet → Enrollment keys** in the hub gives a one-line command that runs `install.sh` from a release:
 
 ```sh
 curl -fsSLO https://github.com/realmwatch/bifrost-agent/releases/download/vX.Y.Z/install.sh &&

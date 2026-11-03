@@ -96,8 +96,8 @@ usage: install.sh --hub https://bifrost.example.com [--enroll | --enroll-stdin]
                   [--version vX.Y.Z | latest] [--from-dir DIR] [--skip-signature-check]
 
   --hub               the hub's URL (https://); needed for the first install
-  --enroll            prompt for an enrollment key (from the hub's Add a server
-                      page), without echo. A server that's already enrolled
+  --enroll            prompt for an enrollment key (from the hub's Fleet → Enrollment
+                      keys page), without echo. A server that's already enrolled
                       keeps its enrollment: re-running is an upgrade.
   --enroll-stdin      read the enrollment key from stdin (ssh loops, cloud-init)
   --trusted-keys      install the trusted keys file exported from the hub
@@ -158,7 +158,7 @@ fi
 
 if [ "$enroll" = prompt ] && [ "$enrolled" = 0 ]; then
 	[ -r /dev/tty ] || die "no terminal to ask for the enrollment key; use --enroll-stdin"
-	printf 'Enrollment key (from the hub'"'"'s Add a server page): ' >/dev/tty
+	printf 'Enrollment key (from the hub'"'"'s Fleet → Enrollment keys page): ' >/dev/tty
 	stty -echo </dev/tty 2>/dev/null || true
 	IFS= read -r key </dev/tty || true
 	stty echo </dev/tty 2>/dev/null || true
