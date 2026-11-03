@@ -255,9 +255,17 @@ The hub checks the challenge, `type == "webauthn.create"` and the origin, then s
   "envelope": "<b64u envelope bytes>",
   "rp_id": "approve.example.com",
   "allow_credentials": ["<b64u>"],
-  "hub_context": {"intent": "...", "source": "heimdall", "reviews": [{"layer": "system1", "verdict": "...", "summary": "..."}]},
+  "hub_context": {
+    "intent": "...",
+    "source": "mcp",
+    "client": "Claude Code",
+    "agent_evidence": {"client": "Claude Code", "user": "dev@example.com", "items": [{"source": "...", "detail": "..."}]},
+    "reviews": [{"layer": "system1", "verdict": "...", "summary": "..."}]
+  },
   "submit_url": "<signed URL>"
 }
 ```
 
 The app decodes the envelope bytes, renders the hosts, operations, parameters, rollback and expiry from those bytes, shows `hub_context` second and labelled as the hub's, computes the hash from the same bytes, calls `navigator.credentials.get`, and `POST submit_url` with `{"key_id", "authenticator_data", "client_data_json", "signature"}`. The hub verifies it the same way the agent does and records the approval.
+
+`client` is the MCP client's name for a proposal made through MCP, otherwise `null`. `agent_evidence` is `null` unless the proposal came through MCP; then it holds the agent's evidence as data, and the app shows it under its own fixed warning that it is an AI agent's claim, unverified, and may have been steered by text the agent read. The hub sends no warning text: everything in `hub_context` is unsigned.
