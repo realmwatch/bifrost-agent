@@ -135,6 +135,10 @@ Delete `/tmp/bifrost-agent-dev/state` to enroll again from scratch.
 
 [`operations/`](operations/) is the source of truth for every operation Bifrost can run on a server. Each release compiles them into the binary and publishes the hub-facing part (`bifrost-agent operations export`) as a signed release file, which the hub pins.
 
+## Security
+
+Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
+
 ## License
 
 [AGPL-3.0](LICENSE).
