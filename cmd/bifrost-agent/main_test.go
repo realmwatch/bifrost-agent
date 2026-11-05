@@ -127,4 +127,33 @@ func TestTrustedKeysCheck(t *testing.T) {
 	if code, _, _ := runCLI("trusted-keys", "check"); code != ExitUsage {
 		t.Fatalf("no file = %d", code)
 	}
+	alex, sam := testkit.NewApprover("user:alex"), testkit.NewApprover("user:sam")
+	set := filepath.Join(dir, "set.json")
+	if err := os.WriteFile(set, testkit.KeySet(1, 2, alex, sam), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errOut := runCLI("trusted-keys", "check", set); code != ExitOK || !strings.Contains(out, "serial: 1\n") ||
+		!strings.Contains(out, "owners: user:alex, user:sam\n") || strings.Contains(out, "warning") {
+		t.Fatalf("key set = %d %q %q", code, out, errOut)
+	}
+
+	// status: the anchor plus a stored update.
+	cfg := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(cfg, []byte(`{"trusted_keys_path":"`+set+`","state_dir":"`+dir+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	next := testkit.KeySet(2, 1, alex, sam)
+	data, _ := json.Marshal(testkit.Update(next, alex, sam))
+	if err := os.MkdirAll(filepath.Join(dir, "keysets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "keysets", "2.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := runCLI("trusted-keys", "status", "--config", cfg)
+	for _, want := range []string{"serial: 2\n", "organization: " + testkit.OrganizationID + "\n", "update threshold: 1\n", "keys: 2 (2 passkeys)\n", "stored updates applied: 1\n"} {
+		if code != ExitOK || !strings.Contains(out, want) {
+			t.Fatalf("status = %d %q %q, want %q", code, out, errOut, want)
+		}
+	}
 }

@@ -162,6 +162,9 @@ type HeartbeatRequest struct {
 	AgentVersion string      `json:"agent_version"`
 	Operations   []string    `json:"operations"`
 	Facts        state.Facts `json:"facts"`
+	// TrustedKeysSerial is the serial of the key set trusted now: 0 for a
+	// legacy file, or when the keys can't be loaded. Always sent.
+	TrustedKeysSerial int `json:"trusted_keys_serial"`
 }
 
 // Heartbeat reports liveness and facts.
@@ -187,9 +190,12 @@ type Query struct {
 type Work struct {
 	Executions []Execution `json:"executions"`
 	Queries    []Query     `json:"queries"`
+	// Keysets are approved key set updates above the serial last reported,
+	// oldest first.
+	Keysets []verify.KeySetUpdate `json:"keysets"`
 }
 
-// GetWork fetches pending executions and queries.
+// GetWork fetches pending executions, queries and key set updates.
 func (c *Client) GetWork(ctx context.Context) (Work, error) {
 	var w Work
 	err := c.do(ctx, http.MethodGet, "/work", nil, &w)

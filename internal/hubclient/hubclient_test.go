@@ -21,7 +21,7 @@ func TestClient(t *testing.T) {
 			w.WriteHeader(http.StatusCreated)
 			_, _ = io.WriteString(w, `{"agent_id":"01JAGENT","server_id":"01JSERVER","token":"bfa_secret"}`)
 		case "/api/agent/v1/work":
-			_, _ = io.WriteString(w, `{"executions":[{"id":"e1","envelope":"e30","approvals":[{"kind":"policy","key_id":"p","signature":"x"}]}],"queries":[{"id":"q1","tool":"journal","args":{"unit":"nginx.service","lines":20}}]}`)
+			_, _ = io.WriteString(w, `{"executions":[{"id":"e1","envelope":"e30","approvals":[{"kind":"policy","key_id":"p","signature":"x"}]}],"queries":[{"id":"q1","tool":"journal","args":{"unit":"nginx.service","lines":20}}],"keysets":[{"keyset":"e30","approvals":[{"kind":"passkey","key_id":"k","authenticator_data":"a","client_data_json":"c","signature":"s"}]}]}`)
 		case "/api/agent/v1/heartbeat", "/api/agent/v1/executions/e%2F1/events", "/api/agent/v1/queries/q1/result":
 			_, _ = io.WriteString(w, `{"ok":true}`)
 		default:
@@ -49,7 +49,8 @@ func TestClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(w.Executions) != 1 || w.Executions[0].Approvals[0].Kind != "policy" || w.Queries[0].Args["lines"] != json.Number("20") {
+	if len(w.Executions) != 1 || w.Executions[0].Approvals[0].Kind != "policy" || w.Queries[0].Args["lines"] != json.Number("20") ||
+		len(w.Keysets) != 1 || w.Keysets[0].KeySet != "e30" || w.Keysets[0].Approvals[0].KeyID != "k" {
 		t.Fatalf("work = %+v", w)
 	}
 	if !strings.Contains(seen[1], "Bearer bfa_secret") {
@@ -66,6 +67,12 @@ func TestClient(t *testing.T) {
 	}
 	if !strings.HasSuffix(seen[3], `{"ok":false,"error":"bad"}`) {
 		t.Fatalf("query result = %q", seen[3])
+	}
+	if err := c.Heartbeat(ctx, HeartbeatRequest{AgentVersion: "0.2.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(seen[4], `"trusted_keys_serial":0`) {
+		t.Fatalf("heartbeat = %q", seen[4])
 	}
 	if err := c.do(ctx, http.MethodGet, "/missing", nil, nil); err == nil || !strings.Contains(err.Error(), "404 not_found: nope") {
 		t.Fatalf("404 err = %v", err)

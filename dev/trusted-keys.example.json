@@ -1,5 +1,10 @@
 {
   "v": 1,
+  "kind": "bifrost.keyset",
+  "organization_id": "01J...",
+  "serial": 1,
+  "update_threshold": 1,
+  "issued_at": "2026-11-05T00:00:00Z",
   "keys": [
     {
       "kind": "passkey",

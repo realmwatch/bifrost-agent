@@ -2,12 +2,13 @@
 
 The agent that runs on each server managed by a Bifrost hub. It dials out to the hub, answers read-only questions about the server, and runs only typed operations carrying an approval signature it can verify itself. A hub that is taken over can propose changes, but can't approve them.
 
-> **Status: v0.1.** Enrollment, heartbeats, polling, state tools, six operations and full approval verification. [`PROTOCOL.md`](PROTOCOL.md) is the contract with the hub and the approver app.
+> **Status: v0.2.** Enrollment, heartbeats, polling, state tools, six operations, full approval verification and signed trusted-key updates. [`PROTOCOL.md`](PROTOCOL.md) is the contract with the hub and the approver app.
 
 - **Dials out** over HTTPS and polls for work (a WebSocket channel and mTLS can replace polling later without changing payloads). No port is opened on the server.
 - **Read-only state tools:** os, packages, pending updates, service status, journal lines (redacted), disk, memory, listening ports, sessions.
 - **Typed operations** run as argument lists, never through a shell, under the agent's own user with sudo rules limited to the operations it knows. Each parameter is checked against its schema and fills exactly one argument.
 - **Verifies approvals** itself: WebAuthn passkey signatures (ES256, EdDSA, RS256) over the exact envelope bytes, its own machine id, the approver's origin and rp id, user verification, the expiry and a single-use nonce. The risk tier comes from the compiled operation, never from the hub.
+- **Trusts a key set it can update only with its approvers' signatures:** root installs the first one (the anchor); later ones come from the hub and are accepted only when enough people the agent already trusts signed them with their passkeys. A newer anchor installed by hand always wins.
 - **Hard rules of its own:** a deny-rule hook and an auto-approval list compiled into the binary that no hub can change.
 
 ## Commands
@@ -20,6 +21,7 @@ bifrost-agent operations sudoers [--user bifrost]
 bifrost-agent state <tool> [--arg key=value ...]
 bifrost-agent verify --envelope FILE --approvals FILE [--machine-id ID]
 bifrost-agent trusted-keys check FILE    # validate a trusted keys file
+bifrost-agent trusted-keys status        # the key set trusted now: serial, organization, threshold
 bifrost-agent version
 ```
 
@@ -32,8 +34,8 @@ bifrost-agent version
 | Field | Default | |
 | --- | --- | --- |
 | `hub_url` | — | `https://...`; `http://` only for localhost |
-| `state_dir` | `/var/lib/bifrost-agent` | `state.json` (agent id and token, mode 0600) and `nonces.json` |
-| `trusted_keys_path` | `/etc/bifrost-agent/trusted-keys.json` | root-owned, read-only to the agent; see PROTOCOL.md |
+| `state_dir` | `/var/lib/bifrost-agent` | `state.json` (agent id and token, mode 0600), `nonces.json` and `keysets/` (accepted key set updates) |
+| `trusted_keys_path` | `/etc/bifrost-agent/trusted-keys.json` | the anchor key set: root-owned, read-only to the agent; see PROTOCOL.md |
 | `poll_interval_seconds` | `5` | |
 | `heartbeat_interval_seconds` | `60` | |
 | `package_manager` | `auto` | `auto`, `apt` or `dnf` |
@@ -77,6 +79,10 @@ printf '%s\n' 'bfe_...' | sudo bifrost-agent enroll --hub https://bifrost.exampl
 ```
 
 Run as root, `enroll` gives `state.json` the owner of its directory (`bifrost`), so the running service can still read it.
+
+### Trusted keys
+
+The trusted keys file is the anchor: the organization's key set when the server was installed (format in [`dev/trusted-keys.example.json`](dev/trusted-keys.example.json); the older `{"v": 1, "keys": [...]}` file still loads, as serial 0). When approvers or their passkeys change, the hub hands the agent the next key set, signed by enough of the current approvers (`update_threshold` different people); the agent checks it, stores it under `state_dir/keysets/` and re-checks the whole chain from the anchor every time it loads its keys. `sudo bifrost-agent trusted-keys status` shows where it stands. To reset the chain, or if every approver has lost their passkeys, install a newer key set exported from the hub as the anchor: stored updates at or below its serial are ignored.
 
 ### By hand
 
