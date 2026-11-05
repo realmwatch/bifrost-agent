@@ -37,21 +37,77 @@ func NewApprover(owner string) *Approver {
 	return &Approver{KeyID: verify.B64U([]byte("cred-" + owner)), Owner: owner, priv: k}
 }
 
-// TrustedKeysJSON renders a trusted keys file for the approvers.
+// Spare generates another passkey for the same owner, as a person with a
+// phone and a hardware key has.
+func (a *Approver) Spare(name string) *Approver {
+	s := NewApprover(a.Owner)
+	s.KeyID = verify.B64U([]byte("cred-" + a.Owner + "-" + name))
+	return s
+}
+
+// Entry renders the approver's passkey as a key set entry.
+func (a *Approver) Entry() map[string]any {
+	spki, err := x509.MarshalPKIXPublicKey(&a.priv.PublicKey)
+	if err != nil {
+		panic(err)
+	}
+	return map[string]any{
+		"kind": "passkey", "key_id": a.KeyID, "owner": a.Owner, "label": "test", "alg": verify.AlgES256,
+		"public_key": verify.B64U(spki), "rp_id": RPID, "origin": Origin,
+	}
+}
+
+// TrustedKeysJSON renders a legacy {"v": 1, "keys": [...]} trusted keys
+// file for the approvers.
 func TrustedKeysJSON(approvers ...*Approver) []byte {
-	var keys []map[string]any
+	keys := []map[string]any{}
 	for _, a := range approvers {
-		spki, err := x509.MarshalPKIXPublicKey(&a.priv.PublicKey)
-		if err != nil {
-			panic(err)
-		}
-		keys = append(keys, map[string]any{
-			"kind": "passkey", "key_id": a.KeyID, "owner": a.Owner, "label": "test", "alg": verify.AlgES256,
-			"public_key": verify.B64U(spki), "rp_id": RPID, "origin": Origin,
-		})
+		keys = append(keys, a.Entry())
 	}
 	b, _ := json.Marshal(map[string]any{"v": 1, "keys": keys})
 	return b
+}
+
+// OrganizationID is the organization of KeySet documents.
+const OrganizationID = "01JORG"
+
+// KeySet renders a key set document for organization OrganizationID.
+func KeySet(serial, threshold int, approvers ...*Approver) []byte {
+	keys := []map[string]any{}
+	for _, a := range approvers {
+		keys = append(keys, a.Entry())
+	}
+	return KeySetWith(map[string]any{"serial": serial, "update_threshold": threshold, "keys": keys})
+}
+
+// KeySetWith renders a key set document from defaults overridden by
+// fields; a nil value removes the field.
+func KeySetWith(fields map[string]any) []byte {
+	m := map[string]any{
+		"v": 1, "kind": verify.KeySetKind, "organization_id": OrganizationID, "serial": 1,
+		"update_threshold": 1, "issued_at": "2026-11-05T00:00:00Z", "keys": []any{},
+	}
+	for k, v := range fields {
+		if v == nil {
+			delete(m, k)
+		} else {
+			m[k] = v
+		}
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+// Update signs a key set with each approver, as GET /work delivers it.
+func Update(keySet []byte, approvers ...*Approver) verify.KeySetUpdate {
+	u := verify.KeySetUpdate{KeySet: verify.B64U(keySet), Approvals: []verify.Approval{}}
+	for _, a := range approvers {
+		u.Approvals = append(u.Approvals, a.Approve(keySet))
+	}
+	return u
 }
 
 // TrustedKeys parses TrustedKeysJSON.
@@ -63,7 +119,7 @@ func TrustedKeys(approvers ...*Approver) *verify.TrustedKeys {
 	return k
 }
 
-// Approve signs a WebAuthn assertion over the envelope bytes.
+// Approve signs a WebAuthn assertion over envelope or key set bytes.
 func (a *Approver) Approve(envelope []byte) verify.Approval {
 	hash := sha256.Sum256(envelope)
 	cdj, _ := json.Marshal(map[string]any{"type": "webauthn.get", "challenge": verify.B64U(hash[:]), "origin": Origin})

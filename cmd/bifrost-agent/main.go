@@ -23,6 +23,7 @@ import (
 	"github.com/realmwatch/bifrost-agent/internal/enroll"
 	"github.com/realmwatch/bifrost-agent/internal/executor"
 	"github.com/realmwatch/bifrost-agent/internal/hubclient"
+	"github.com/realmwatch/bifrost-agent/internal/keystore"
 	"github.com/realmwatch/bifrost-agent/internal/nonce"
 	"github.com/realmwatch/bifrost-agent/internal/runner"
 	"github.com/realmwatch/bifrost-agent/internal/state"
@@ -55,6 +56,9 @@ Commands:
                        FILE holds the exact envelope bytes, or their base64url.
   trusted-keys check FILE
                        Check a trusted keys file the way the agent reads it.
+  trusted-keys status [--config PATH]
+                       Print the key set trusted now: the anchor plus the
+                       signed updates stored since.
   version              Print the agent version.
 `
 
@@ -87,7 +91,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "verify":
 		return cmdVerify(rest, stdout, stderr)
 	case "trusted-keys":
-		err = cmdTrustedKeys(rest, stdout)
+		err = cmdTrustedKeys(rest, stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprintf(stdout, usage, strings.Join(state.ToolNames(), ", "))
 		return ExitOK
@@ -206,15 +210,47 @@ func matchStateDirOwner(path string) error {
 	return os.Chown(path, int(owner.Uid), int(owner.Gid))
 }
 
-func cmdTrustedKeys(args []string, stdout io.Writer) error {
-	if len(args) != 2 || args[0] != "check" {
-		return usageError{"usage: trusted-keys check FILE"}
+func cmdTrustedKeys(args []string, stdout, stderr io.Writer) error {
+	switch {
+	case len(args) == 2 && args[0] == "check":
+		keys, err := verify.LoadTrustedKeys(args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "ok: %s is a valid trusted keys file\n", args[1])
+		printKeySet(stdout, keys)
+		if err := keys.Usable(); err != nil && !keys.Legacy {
+			fmt.Fprintf(stdout, "warning: no update can be accepted over this key set: %v\n", err)
+		}
+		return nil
+	case len(args) >= 1 && args[0] == "status":
+		fs := newFlags("trusted-keys status", stderr)
+		cfgPath := fs.String("config", config.DefaultPath, "config file")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		cfg, err := config.Load(*cfgPath, true)
+		if err != nil {
+			return err
+		}
+		st, err := keystore.New(cfg, newLogger(stderr)).Status()
+		if err != nil {
+			return err
+		}
+		printKeySet(stdout, st.Keys)
+		fmt.Fprintf(stdout, "anchor: %s (serial %d)\nstored updates applied: %d\n", cfg.TrustedKeysPath, st.AnchorSerial, st.Applied)
+		return nil
 	}
-	if _, err := verify.LoadTrustedKeys(args[1]); err != nil {
-		return err
+	return usageError{"usage: trusted-keys check FILE | trusted-keys status [--config PATH]"}
+}
+
+func printKeySet(w io.Writer, k *verify.TrustedKeys) {
+	org := k.OrganizationID
+	if k.Legacy {
+		org = "none (legacy file)"
 	}
-	fmt.Fprintf(stdout, "ok: %s is a valid trusted keys file\n", args[1])
-	return nil
+	fmt.Fprintf(w, "serial: %d\norganization: %s\nupdate threshold: %d\nkeys: %d (%d passkeys)\nowners: %s\n",
+		k.Serial, org, k.UpdateThreshold, k.Len(), k.PasskeyCount(), strings.Join(k.Owners(), ", "))
 }
 
 func cmdRun(args []string, stderr io.Writer) error {
@@ -263,9 +299,12 @@ func cmdRun(args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	loadKeys := func() (*verify.TrustedKeys, error) { return verify.LoadTrustedKeys(cfg.TrustedKeysPath) }
-	if _, err := loadKeys(); err != nil {
+	keys := keystore.New(cfg, log)
+	if st, err := keys.Status(); err != nil {
 		log.Warn("trusted keys are not usable yet; every execution will be rejected until they are", "err", err)
+	} else {
+		log.Info("trusted keys loaded", "serial", st.Keys.Serial, "organization", st.Keys.OrganizationID,
+			"keys", st.Keys.Len(), "stored_updates_applied", st.Applied)
 	}
 	v := &verify.Verifier{
 		Catalog: cat, MachineID: machineID, PackageManager: env.PackageManager, Nonces: store,
@@ -277,7 +316,7 @@ func cmdRun(args []string, stderr io.Writer) error {
 	}
 	d := &daemon.Daemon{
 		Hub: hubclient.New(hubURL, st.Token, cfg.InsecureSkipTLSVerify), State: env, Catalog: cat,
-		Executor: x, LoadKeys: loadKeys, Log: log,
+		Executor: x, Keys: keys, Log: log,
 		PollInterval: cfg.PollInterval(), HeartbeatInterval: cfg.HeartbeatInterval(),
 	}
 
@@ -440,7 +479,7 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 	if err := json.Unmarshal(apprData, &approvals); err != nil {
 		return fail(fmt.Errorf("approvals: %w", err))
 	}
-	keys, err := verify.LoadTrustedKeys(cfg.TrustedKeysPath)
+	keys, err := keystore.New(cfg, newLogger(stderr)).Load()
 	if err != nil {
 		return fail(err)
 	}

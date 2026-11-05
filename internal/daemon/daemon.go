@@ -28,16 +28,25 @@ type Hub interface {
 	PostQueryResult(ctx context.Context, queryID string, r hubclient.QueryResult) error
 }
 
+// KeyStore is the key set the agent trusts (keystore.Store).
+type KeyStore interface {
+	// Load returns the key set trusted now, read again from disk.
+	Load() (*verify.TrustedKeys, error)
+	// Apply checks and stores an update: the new set, nil and nil for a
+	// serial at or below the current one, or why it was not applied.
+	Apply(u verify.KeySetUpdate) (*verify.TrustedKeys, error)
+}
+
 // Daemon runs the loop.
 type Daemon struct {
 	Hub      Hub
 	State    *state.Env
 	Catalog  *catalog.Catalog
 	Executor *executor.Executor
-	// LoadKeys reads the trusted keys file; called for every execution so
-	// an admin's change applies without a restart.
-	LoadKeys func() (*verify.TrustedKeys, error)
-	Log      *slog.Logger
+	// Keys is loaded for every execution and heartbeat, so an admin's new
+	// anchor or an accepted update applies without a restart.
+	Keys KeyStore
+	Log  *slog.Logger
 
 	PollInterval      time.Duration
 	HeartbeatInterval time.Duration
@@ -51,6 +60,9 @@ type Daemon struct {
 	wake    chan struct{}
 	revoked chan struct{}
 	once    sync.Once
+	// lastKeySetErr suppresses repeating the same key set log line on
+	// every poll. Only the polling loop touches it.
+	lastKeySetErr string
 }
 
 // Run loops until ctx is cancelled (returns nil after finishing the
@@ -156,8 +168,13 @@ func (d *Daemon) isRevoked() bool {
 }
 
 func (d *Daemon) heartbeat(ctx context.Context) {
+	serial := 0
+	if keys, err := d.Keys.Load(); err == nil {
+		serial = keys.Serial
+	}
 	err := d.Hub.Heartbeat(ctx, hubclient.HeartbeatRequest{
 		AgentVersion: version.Version, Operations: d.Catalog.Keys(), Facts: d.State.Facts(),
+		TrustedKeysSerial: serial,
 	})
 	if errors.Is(err, hubclient.ErrUnauthorized) {
 		d.revoke()
@@ -170,6 +187,11 @@ func (d *Daemon) poll(loopCtx, workCtx context.Context, wg *sync.WaitGroup) erro
 	work, err := d.Hub.GetWork(loopCtx)
 	if err != nil {
 		return err
+	}
+	// Key set updates come first, so this response's executions verify
+	// against the new set; then the hub hears the new serial.
+	if d.applyKeySets(work.Keysets) {
+		d.heartbeat(loopCtx)
 	}
 	for _, q := range work.Queries {
 		wg.Add(1)
@@ -188,6 +210,38 @@ func (d *Daemon) poll(loopCtx, workCtx context.Context, wg *sync.WaitGroup) erro
 		}
 	}
 	return nil
+}
+
+// applyKeySets applies updates in order and reports whether any was
+// accepted. It stops at the first one that fails or skips a serial.
+func (d *Daemon) applyKeySets(updates []verify.KeySetUpdate) bool {
+	applied := false
+	for _, u := range updates {
+		next, err := d.Keys.Apply(u)
+		if err != nil {
+			d.logKeySetErr(err)
+			return applied
+		}
+		if next != nil {
+			applied = true
+			d.lastKeySetErr = ""
+			d.Log.Info("accepted a key set update", "serial", next.Serial, "keys", next.Len(),
+				"owners", len(next.Owners()), "update_threshold", next.UpdateThreshold)
+		}
+	}
+	return applied
+}
+
+func (d *Daemon) logKeySetErr(err error) {
+	if err.Error() == d.lastKeySetErr {
+		return
+	}
+	d.lastKeySetErr = err.Error()
+	if errors.Is(err, verify.ErrKeySetGap) {
+		d.Log.Info("waiting for a missing key set update", "err", err)
+		return
+	}
+	d.Log.Warn("rejected a key set update; still trusting the current key set", "err", err)
 }
 
 func (d *Daemon) answer(ctx context.Context, q hubclient.Query) {
@@ -274,7 +328,7 @@ func (d *Daemon) execute(ctx context.Context, e hubclient.Execution) {
 	case derr != nil:
 		_, err = d.Executor.Reject(ctx, "bad envelope: not base64url", sink)
 	default:
-		keys, kerr := d.LoadKeys()
+		keys, kerr := d.Keys.Load()
 		if kerr != nil {
 			d.Log.Error("cannot load trusted keys", "err", kerr)
 			_, err = d.Executor.Reject(ctx, "agent has no usable trusted keys file", sink)

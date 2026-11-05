@@ -5,6 +5,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"github.com/realmwatch/bifrost-agent/internal/catalog"
 	"github.com/realmwatch/bifrost-agent/internal/executor"
 	"github.com/realmwatch/bifrost-agent/internal/hubclient"
+	"github.com/realmwatch/bifrost-agent/internal/keystore"
 	"github.com/realmwatch/bifrost-agent/internal/nonce"
 	"github.com/realmwatch/bifrost-agent/internal/runner"
 	"github.com/realmwatch/bifrost-agent/internal/state"
@@ -24,16 +28,18 @@ type fakeHub struct {
 	works      []hubclient.Work
 	workErrs   []error
 	heartbeats int
+	serials    []int
 	polls      int
 	events     map[string][]hubclient.Event
 	results    map[string]hubclient.QueryResult
 	unauth     bool
 }
 
-func (h *fakeHub) Heartbeat(context.Context, hubclient.HeartbeatRequest) error {
+func (h *fakeHub) Heartbeat(_ context.Context, r hubclient.HeartbeatRequest) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.heartbeats++
+	h.serials = append(h.serials, r.TrustedKeysSerial)
 	return nil
 }
 
@@ -82,8 +88,19 @@ func (h *fakeHub) finished(id string) (string, bool) {
 	return "", false
 }
 
+// newDaemon trusts a legacy anchor holding a.
 func newDaemon(t *testing.T, hub *fakeHub, a *testkit.Approver) *Daemon {
 	t.Helper()
+	return newDaemonWithAnchor(t, hub, testkit.TrustedKeysJSON(a))
+}
+
+func newDaemonWithAnchor(t *testing.T, hub *fakeHub, anchor []byte) *Daemon {
+	t.Helper()
+	dir := t.TempDir()
+	anchorPath := filepath.Join(dir, "trusted-keys.json")
+	if err := os.WriteFile(anchorPath, anchor, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	hub.events = map[string][]hubclient.Event{}
 	hub.results = map[string]hubclient.QueryResult{}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -96,7 +113,7 @@ func newDaemon(t *testing.T, hub *fakeHub, a *testkit.Approver) *Daemon {
 		FlushInterval: time.Millisecond, SinkRetry: time.Millisecond}
 	return &Daemon{
 		Hub: hub, State: env, Catalog: v.Catalog, Executor: x, Log: quiet,
-		LoadKeys:     func() (*verify.TrustedKeys, error) { return testkit.TrustedKeys(a), nil },
+		Keys:         &keystore.Store{AnchorPath: anchorPath, Dir: filepath.Join(dir, "keysets"), Log: quiet},
 		PollInterval: time.Millisecond, HeartbeatInterval: time.Hour, MaxBackoff: 4 * time.Millisecond,
 	}
 }
@@ -158,6 +175,62 @@ func TestRunsWorkAndStops(t *testing.T) {
 	}
 	if hub.heartbeats < 1 || hub.polls < 3 {
 		t.Errorf("heartbeats = %d polls = %d", hub.heartbeats, hub.polls)
+	}
+}
+
+func TestAppliesKeySetsBeforeExecutions(t *testing.T) {
+	alex, sam := testkit.NewApprover("user:alex"), testkit.NewApprover("user:sam")
+	ops := []testkit.Step{{Op: "service.restart", Version: 1, Params: map[string]any{"unit": "nginx.service"}}}
+	env := testkit.Envelope(ops, nil, "2026-11-01T00:00:00Z", 1)
+	env2 := testkit.Envelope(ops, nil, "2026-11-01T00:00:00Z", 2)
+	// Serial 2 adds sam; serial 3 is signed by a stranger and is rejected,
+	// serial 5 is a gap.
+	ks2 := testkit.KeySet(2, 1, alex, sam)
+	ks3 := testkit.KeySet(3, 1, sam)
+	hub := &fakeHub{works: []hubclient.Work{
+		{
+			Keysets:    []verify.KeySetUpdate{testkit.Update(testkit.KeySet(1, 1, alex)), testkit.Update(ks2, alex)},
+			Executions: []hubclient.Execution{{ID: "e1", Envelope: verify.B64U(env), Approvals: []verify.Approval{sam.Approve(env)}}},
+		},
+		{
+			Keysets: []verify.KeySetUpdate{
+				testkit.Update(ks3, testkit.NewApprover("user:eve")), testkit.Update(testkit.KeySet(5, 1, sam), sam),
+			},
+			Executions: []hubclient.Execution{{ID: "e2", Envelope: verify.B64U(env2), Approvals: []verify.Approval{alex.Approve(env2)}}},
+		},
+	}}
+	d := newDaemonWithAnchor(t, hub, testkit.KeySet(1, 1, alex))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+	waitFor(t, func() bool { _, ok := hub.finished("e2"); return ok })
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run = %v", err)
+	}
+	if r, _ := hub.finished("e1"); r != "succeeded" {
+		t.Errorf("e1 (approved by the key the update added) = %s %v", r, hub.events["e1"])
+	}
+	if r, _ := hub.finished("e2"); r != "succeeded" {
+		t.Errorf("e2 (serial 3 rejected, alex still trusted) = %s %v", r, hub.events["e2"])
+	}
+	hub.mu.Lock()
+	serials := slices.Clone(hub.serials)
+	hub.mu.Unlock()
+	if len(serials) < 2 || serials[0] != 1 || serials[1] != 2 || slices.Contains(serials, 3) {
+		t.Errorf("heartbeat serials = %v, want 1 then 2 right after the update", serials)
+	}
+	if keys, err := d.Keys.Load(); err != nil || keys.Serial != 2 {
+		t.Fatalf("stored keys = %+v, %v", keys, err)
+	}
+}
+
+func TestHeartbeatSerialZeroWithoutKeys(t *testing.T) {
+	hub := &fakeHub{}
+	d := newDaemonWithAnchor(t, hub, []byte(`{"v":2}`))
+	d.heartbeat(context.Background())
+	if len(hub.serials) != 1 || hub.serials[0] != 0 {
+		t.Fatalf("serials = %v", hub.serials)
 	}
 }
 

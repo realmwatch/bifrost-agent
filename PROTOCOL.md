@@ -47,9 +47,12 @@ Creating an enrollment key in the hub shows the commands that use it: one line t
     "kernel": "6.8.0-45-generic",
     "uptime_seconds": 12345,
     "package_manager": "apt"
-  }
+  },
+  "trusted_keys_serial": 3
 }
 ```
+
+`trusted_keys_serial` is the `serial` of the key set the agent trusts now (see [Trusted keys](#trusted-keys)), `0` for a file without one. Agents before v0.2.0 leave it out.
 
 Response `200`: `{"ok": true}`.
 
@@ -68,9 +71,14 @@ Response `200`:
   ],
   "queries": [
     {"id": "<query id>", "tool": "service_status", "args": {"unit": "nginx.service"}}
+  ],
+  "keysets": [
+    {"keyset": "<b64u of the key set bytes>", "approvals": [ /* passkey approvals, see Approvals */ ]}
   ]
 }
 ```
+
+`keysets` holds the organization's approved key set updates with a `serial` above the one the agent last reported in a heartbeat, oldest first; it is empty when the agent is current or has never reported a serial. The agent applies them in order before running anything else in the response, then sends a heartbeat so the hub sees the new serial.
 
 The hub hands out each execution and query once; it marks them `dispatched` when returned. It holds an execution back until the proposal's `not_before` has passed (the agent refuses an early envelope anyway, see below), so a scheduled proposal stays `approved` and is handed out on the first poll after that time.
 
@@ -192,11 +200,16 @@ The approver app calls `navigator.credentials.get` with `challenge = hash` and `
 
 ## Trusted keys
 
-The agent reads its trusted keys from a local file (default `/etc/bifrost-agent/trusted-keys.json`, root-owned, read-only to the agent's user). An admin installs it; the hub can't change it. The hub's admin UI exports this file for an organization.
+The agent trusts a **key set**: the passkeys (and policy keys) whose approvals it accepts, plus how many people must sign a change to the set itself. A key set is a document with exact bytes, like an envelope:
 
 ```json
 {
   "v": 1,
+  "kind": "bifrost.keyset",
+  "organization_id": "01J...",
+  "serial": 3,
+  "update_threshold": 2,
+  "issued_at": "2026-11-05T00:00:00Z",
   "keys": [
     {"kind": "passkey", "key_id": "<b64u credential id>", "owner": "user:01J...", "label": "Alex's phone", "alg": -7, "public_key": "<b64u SPKI DER>", "rp_id": "approve.example.com", "origin": "https://approve.example.com"},
     {"kind": "policy", "key_id": "policy-1", "public_key": "<b64u raw 32-byte Ed25519 key>"}
@@ -204,18 +217,46 @@ The agent reads its trusted keys from a local file (default `/etc/bifrost-agent/
 }
 ```
 
+`hash = SHA-256(key set bytes)`. `serial` starts at 1 and goes up by one with every change. `update_threshold` is how many different `owner`s must approve the *next* key set.
+
+### The anchor
+
+The trusted keys file (default `/etc/bifrost-agent/trusted-keys.json`, root-owned, read-only to the agent's user) is the **anchor**: a key set an admin installed, trusted because root put it there. `install.sh --trusted-keys-b64` writes it from the hub's install command, which carries the organization's current key set; the hub's admin UI also exports it. An older file of the form `{"v": 1, "keys": [...]}` still loads, as serial 0 with an `update_threshold` of 1 and no organization.
+
+### Updates
+
+After installation, key sets change without touching the server. The hub builds the next key set when the organization's approvers or their passkeys change, approvers sign it in the approver app exactly as they sign an envelope (`challenge = hash`), and once enough have signed, the hub hands it to every agent in `GET /work`. The hub can deliver a key set but can't make one an agent accepts: only the people the agent already trusts can.
+
+The agent accepts an update `U` while trusting key set `C` when, in order (the first failure leaves `C` in place and is logged):
+
+1. `U` parses strictly, the same way as an envelope (no duplicate keys, no unknown fields), with `v == 1` and `kind == "bifrost.keyset"`.
+2. `U.serial == C.serial + 1`. A lower or equal serial is ignored without a log line; a gap waits for the missing update.
+3. If `C` has an `organization_id`, `U` has the same one.
+4. `U` is usable: at least one passkey, no duplicate `key_id`s, every key well-formed, and `1 <= U.update_threshold <=` the number of different owners in `U`.
+5. Valid passkey approvals over `U`'s hash, from passkeys in **`C`** (checked as in [Passkey signatures](#passkey-signatures)), come from at least `C.update_threshold` different owners. Policy keys can't approve a key set.
+
+The agent stores each accepted update under its state directory (`keysets/<serial>.json`, holding the key set bytes and their approvals) and, whenever it loads its keys, starts from the anchor and re-checks each stored update in serial order, so a tampered file only stops the chain where it was changed. Stored updates at or below the anchor's serial are ignored, so installing a newer anchor by hand always wins: root on the server stays the last word, and is the recovery path if every approver loses their passkeys.
+
+### The hub's side
+
+- The hub creates serial 1 itself when an organization's first approver registers a passkey. Nothing signs it; servers get it only through the install command or by hand. An agent installed before then (an empty key set) never accepts an update, because nobody it trusts can sign one: install it again with the current command.
+- When the approvers or their passkeys change, the hub replaces any unapproved key set with a new one for `serial + 1` and asks the approvers who hold keys in the current set to approve it. If the change is undone first, it cancels the pending one.
+- `update_threshold` is `BIFROST_KEYSET_UPDATE_THRESHOLD` (default 2), capped at the number of different owners in the new set.
+- The hub accepts an approval of a proposal only from a passkey in the current key set, since agents reject the others.
+- One person can hold several passkeys (a phone and a hardware key kept somewhere safe). They count as one owner, but a spare is how someone who loses their phone signs the update that removes it.
+
 ## What the agent checks before running
 
 In order; the first failure is a `rejected` event and nothing runs.
 
-1. The envelope parses with no duplicate object keys at any depth (`duplicate JSON key`) and no unknown fields, `v == 1`, `kind == "bifrost.envelope"`, and `nonce` is exactly 64 lowercase hex characters. The trusted keys file is parsed the same strict way.
+1. The envelope parses with no duplicate object keys at any depth (`duplicate JSON key`) and no unknown fields, `v == 1`, `kind == "bifrost.envelope"`, and `nonce` is exactly 64 lowercase hex characters. The trusted keys file and key set updates are parsed the same strict way.
 2. Its own machine id is in `hosts`.
 3. Now is after `not_before` (if set) and before `expires_at`.
 4. The nonce hasn't been seen (the agent keeps seen nonces until their envelope expires).
 5. Every operation and rollback step is compiled into this agent, and its params match the schema.
 6. No operation hits a deny rule compiled into the agent.
 7. Approvals satisfy the agent's own rules, with the tier taken from the agent's compiled `min_tier` of each operation and rollback step (never the envelope's `risk_tier`):
-   - at least one valid passkey approval, from a key in the trusted file;
+   - at least one valid passkey approval, from a key in the current key set;
    - `critical`: valid passkey approvals from two different `owner`s;
    - a policy approval alone is enough only if every operation and rollback step is in the agent's compiled auto-approval list (v0.1: `service.restart@1`).
 
@@ -269,5 +310,22 @@ The hub checks the challenge, `type == "webauthn.create"` and the origin, then s
 ```
 
 The app decodes the envelope bytes, renders the hosts, operations, parameters, rollback and expiry from those bytes, shows `hub_context` second and labelled as the hub's, computes the hash from the same bytes, calls `navigator.credentials.get`, and `POST submit_url` with `{"key_id", "authenticator_data", "client_data_json", "signature"}`. The hub verifies it the same way the agent does and records the approval.
+
+### Approving a key set
+
+`{approver}/#keyset=<url-encoded signed URL>`. `GET` returns:
+
+```json
+{
+  "key_set_id": "01J...",
+  "keyset": "<b64u key set bytes>",
+  "current": "<b64u bytes of the key set agents trust now>",
+  "rp_id": "approve.example.com",
+  "allow_credentials": ["<b64u>"],
+  "submit_url": "<signed URL>"
+}
+```
+
+The app parses both, renders the new key set from its own bytes (serial, organization, update threshold, and each key's label, owner, kind and origin), marks the keys it adds and lists the keys it removes compared with `current`, labelled as the hub's copy of the current set, then hashes and signs the new key set's bytes and `POST submit_url` the same assertion fields as for a proposal. The hub verifies the signature against the passkeys in the current key set.
 
 `client` is the MCP client's name for a proposal made through MCP, otherwise `null`. `agent_evidence` is `null` unless the proposal came through MCP; then it holds the agent's evidence as data, and the app shows it under its own fixed warning that it is an AI agent's claim, unverified, and may have been steered by text the agent read. The hub sends no warning text: everything in `hub_context` is unsigned.
