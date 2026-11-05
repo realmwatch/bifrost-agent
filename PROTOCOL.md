@@ -264,7 +264,7 @@ Then it runs the operations in order. If one fails or its health check fails, it
 
 ## Approver app ↔ hub
 
-The approver app is static and has no session with the hub. The hub gives it temporary signed URLs, opened as `{approver}/#register=<url-encoded signed URL>`, `{approver}/#approve=<url-encoded signed URL>` or `{approver}/#keyset=<url-encoded signed URL>`. The hub allows CORS from the approver origin on `/api/approver/v1/*`.
+The approver app is static and has no session with the hub. The hub gives it temporary signed URLs, opened as `{approver}/#register=<url-encoded signed URL>`, `{approver}/#approve=<url-encoded signed URL>`, `{approver}/#keyset=<url-encoded signed URL>` or `{approver}/#notify=<url-encoded signed URL>`. The hub allows CORS from the approver origin on `/api/approver/v1/*`.
 
 ### Registering a passkey
 
@@ -329,3 +329,34 @@ The app decodes the envelope bytes, renders the hosts, operations, parameters, r
 ```
 
 The app parses both, renders the new key set from its own bytes (serial, organization, update threshold, and each key's label, owner, kind and origin), marks the keys it adds and lists the keys it removes compared with `current`, labelled as the hub's copy of the current set, then hashes and signs the new key set's bytes and `POST submit_url` the same assertion fields as for a proposal. The hub verifies the signature against the passkeys in the current key set.
+
+### Notifications
+
+The hub sends Web Push notifications to the approver app on the devices people turn them on for, so approvers don't need the hub's admin name to hear about work.
+
+`{approver}/#notify=<url-encoded signed URL>` turns them on for one device. `GET` returns:
+
+```json
+{
+  "user": {"name": "alex@example.com", "display_name": "Alex"},
+  "vapid_public_key": "<b64u 65-byte uncompressed P-256 point>",
+  "subscribe_url": "<signed URL>"
+}
+```
+
+The app asks for notification permission, calls `pushManager.subscribe({userVisibleOnly: true, applicationServerKey: vapid_public_key})` on its service worker registration, and `POST subscribe_url`:
+
+```json
+{"endpoint": "https://fcm.googleapis.com/fcm/send/...", "keys": {"p256dh": "<b64u>", "auth": "<b64u>"}, "label": "Alex's phone"}
+```
+
+Response `201`: `{"device_id": "01J..."}`. The hub accepts only `https` endpoints on known push services (`BIFROST_PUSH_HOSTS`), so a subscription can't make it call anything else.
+
+Each push is encrypted to the device (RFC 8291, `aes128gcm`) and signed by the hub's VAPID key (RFC 8292). The decrypted payload:
+
+```json
+{"v": 1, "title": "Approval needed", "body": "Restart nginx on web-01 (risk: low)", "url": "/#approve=<url-encoded signed URL>", "tag": "proposal:01J..."}
+```
+
+`url` is a path on the approver's own origin: an `#approve=` or `#keyset=` link whose signed URL lasts until the proposal expires, at most 24 hours. The service worker shows the notification and, on a tap, opens or focuses the app at that path; it ignores a `url` that isn't on its own origin. A notification only says that something is waiting: what gets signed is still shown from the signed bytes, as always.
+
