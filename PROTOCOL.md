@@ -78,7 +78,7 @@ Response `200`:
 }
 ```
 
-`keysets` holds the organization's approved key set updates with a `serial` above the one the agent last reported in a heartbeat, oldest first; it is empty when the agent is current or has never reported a serial. The agent applies them in order before running anything else in the response, then sends a heartbeat so the hub sees the new serial.
+`keysets` holds the organization's approved key set updates with a `serial` above the one the agent last reported in a heartbeat, oldest first; it is empty when the agent is current or has never reported a serial. Serial 1 is never sent: nothing signs it. The agent applies them in order before running anything else in the response, then sends a heartbeat so the hub sees the new serial.
 
 The hub hands out each execution and query once; it marks them `dispatched` when returned. It holds an execution back until the proposal's `not_before` has passed (the agent refuses an early envelope anyway, see below), so a scheduled proposal stays `approved` and is handed out on the first poll after that time.
 
@@ -239,7 +239,7 @@ The agent stores each accepted update under its state directory (`keysets/<seria
 
 ### The hub's side
 
-- The hub creates serial 1 itself when an organization's first approver registers a passkey. Nothing signs it; servers get it only through the install command or by hand. An agent installed before then (an empty key set) never accepts an update, because nobody it trusts can sign one: install it again with the current command.
+- The hub creates serial 1 itself when an organization's first approver registers a passkey, and rewrites it in place on every change until the organization's first agent enrolls: until then no server trusts it, so there is nothing to sign for. Nothing signs serial 1; servers get it only through the install command or by hand. An agent installed with no key set never accepts an update, because nobody it trusts can sign one: install it again with the current command.
 - When the approvers or their passkeys change, the hub replaces any unapproved key set with a new one for `serial + 1` and asks the approvers who hold keys in the current set to approve it. If the change is undone first, it cancels the pending one.
 - `update_threshold` is `BIFROST_KEYSET_UPDATE_THRESHOLD` (default 2), capped at the number of different owners in the new set.
 - The hub accepts an approval of a proposal only from a passkey in the current key set, since agents reject the others.
@@ -264,7 +264,7 @@ Then it runs the operations in order. If one fails or its health check fails, it
 
 ## Approver app ↔ hub
 
-The approver app is static and has no session with the hub. The hub gives it temporary signed URLs, opened as `{approver}/#register=<url-encoded signed URL>` or `{approver}/#approve=<url-encoded signed URL>`. The hub allows CORS from the approver origin on `/api/approver/v1/*`.
+The approver app is static and has no session with the hub. The hub gives it temporary signed URLs, opened as `{approver}/#register=<url-encoded signed URL>`, `{approver}/#approve=<url-encoded signed URL>` or `{approver}/#keyset=<url-encoded signed URL>`. The hub allows CORS from the approver origin on `/api/approver/v1/*`.
 
 ### Registering a passkey
 
@@ -311,6 +311,8 @@ The hub checks the challenge, `type == "webauthn.create"` and the origin, then s
 
 The app decodes the envelope bytes, renders the hosts, operations, parameters, rollback and expiry from those bytes, shows `hub_context` second and labelled as the hub's, computes the hash from the same bytes, calls `navigator.credentials.get`, and `POST submit_url` with `{"key_id", "authenticator_data", "client_data_json", "signature"}`. The hub verifies it the same way the agent does and records the approval.
 
+`client` is the MCP client's name for a proposal made through MCP, otherwise `null`. `agent_evidence` is `null` unless the proposal came through MCP; then it holds the agent's evidence as data, and the app shows it under its own fixed warning that it is an AI agent's claim, unverified, and may have been steered by text the agent read. The hub sends no warning text: everything in `hub_context` is unsigned.
+
 ### Approving a key set
 
 `{approver}/#keyset=<url-encoded signed URL>`. `GET` returns:
@@ -327,5 +329,3 @@ The app decodes the envelope bytes, renders the hosts, operations, parameters, r
 ```
 
 The app parses both, renders the new key set from its own bytes (serial, organization, update threshold, and each key's label, owner, kind and origin), marks the keys it adds and lists the keys it removes compared with `current`, labelled as the hub's copy of the current set, then hashes and signs the new key set's bytes and `POST submit_url` the same assertion fields as for a proposal. The hub verifies the signature against the passkeys in the current key set.
-
-`client` is the MCP client's name for a proposal made through MCP, otherwise `null`. `agent_evidence` is `null` unless the proposal came through MCP; then it holds the agent's evidence as data, and the app shows it under its own fixed warning that it is an AI agent's claim, unverified, and may have been steered by text the agent read. The hub sends no warning text: everything in `hub_context` is unsigned.
