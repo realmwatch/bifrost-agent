@@ -350,7 +350,9 @@ The app asks for notification permission, calls `pushManager.subscribe({userVisi
 {"endpoint": "https://fcm.googleapis.com/fcm/send/...", "keys": {"p256dh": "<b64u>", "auth": "<b64u>"}, "label": "Alex's phone"}
 ```
 
-Response `201`: `{"device_id": "01J..."}`. The hub accepts only `https` endpoints on known push services (`BIFROST_PUSH_HOSTS`), so a subscription can't make it call anything else.
+Response `201`: `{"device_id": "01J..."}`.
+
+**Pairing code.** An app installed on an iPhone's Home Screen can't be opened by a link: links open Safari, which keeps separate storage, and iOS allows push only in the installed app. So a person can instead get a pairing code from the hub (8 characters from `0-9A-Z` without `I L O U`, shown as `K7QM-4XRP`; single use; valid 10 minutes) and type it into the app. The app knows its hub's origin (set at deploy, like the CSP) and sends `POST {hub}/api/approver/v1/pairing` with `{"code": "K7QM4XRP"}`, case and dashes ignored. The response is the same as the `GET` above, and the app continues the same way. A wrong or used code gets `404 invalid_code`; the endpoint allows 10 attempts a minute per address. The hub accepts only `https` endpoints on known push services (`BIFROST_PUSH_HOSTS`), so a subscription can't make it call anything else.
 
 Each push is encrypted to the device (RFC 8291, `aes128gcm`) and signed by the hub's VAPID key (RFC 8292). The decrypted payload:
 
