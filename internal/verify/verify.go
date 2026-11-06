@@ -21,9 +21,21 @@ type DenyRule struct {
 	Match func(def *catalog.Definition, params map[string]any) (reason string, denied bool)
 }
 
-// CompiledDenyRules are the agent's own deny rules. None yet: the hook is
-// in place and tested.
-var CompiledDenyRules = []DenyRule{}
+// CompiledDenyRules are the agent's own deny rules.
+var CompiledDenyRules = []DenyRule{{
+	// Stopping or disabling the agent's own unit would cut the hub off
+	// from the server: only a person on the server can do that.
+	Name: "agent-unit",
+	Match: func(def *catalog.Definition, params map[string]any) (string, bool) {
+		if def.Name != "service.stop" && def.Name != "service.disable" {
+			return "", false
+		}
+		if unit, _ := params["unit"].(string); unit == catalog.AgentUnit {
+			return def.Name + " of the agent's own unit", true
+		}
+		return "", false
+	},
+}}
 
 // CompiledAutoApproval lists the operations a policy approval alone may
 // approve. Certificate renewal and security updates join when they exist.
@@ -157,6 +169,9 @@ func (v *Verifier) Verify(raw []byte, approvals []Approval) (*Result, error) {
 			}
 			if err := def.Params.Validate(s.Params); err != nil {
 				return nil, reject(CheckOperation, "bad params for %s[%d] %s: %v", group.name, i, s.Key(), err)
+			}
+			if def.Reboots && (group.name != "operations" || i != len(group.steps)-1) {
+				return nil, reject(CheckOperation, "%s reboots the host, so it must be the last operation and can't be a rollback step", s.Key())
 			}
 			if def.MinTier > tier {
 				tier = def.MinTier

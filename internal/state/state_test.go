@@ -88,8 +88,8 @@ func TestParsers(t *testing.T) {
 		t.Errorf("rpm = %v", got)
 	}
 	if got := ParseAptUpgradable(aptListFixture); !reflect.DeepEqual(got, []Update{
-		{"openssl", "3.0.13-0ubuntu3.1", "3.0.13-0ubuntu3.4", true},
-		{"curl", "8.5.0-2ubuntu10.4", "8.5.0-2ubuntu10.5", false},
+		{"openssl", "3.0.13-0ubuntu3.1", "3.0.13-0ubuntu3.4", true, false},
+		{"curl", "8.5.0-2ubuntu10.4", "8.5.0-2ubuntu10.5", false, false},
 	}) {
 		t.Errorf("apt list = %v", got)
 	}
@@ -98,8 +98,8 @@ func TestParsers(t *testing.T) {
 		t.Errorf("dnf security = %v", sec)
 	}
 	if got := ParseDnfCheckUpdate(dnfCheckFixture, map[string]string{"openssl": "1:3.0.7-27.el9"}, sec); !reflect.DeepEqual(got, []Update{
-		{"openssl", "1:3.0.7-27.el9", "1:3.0.7-28.el9_4", true},
-		{"bash", "", "5.1.8-9.el9_4", false},
+		{"openssl", "1:3.0.7-27.el9", "1:3.0.7-28.el9_4", true, false},
+		{"bash", "", "5.1.8-9.el9_4", false, false},
 	}) {
 		t.Errorf("dnf check-update = %v", got)
 	}
@@ -148,12 +148,17 @@ func fixtureRoot(t *testing.T, osRelease string) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"etc/os-release":            osRelease,
-		"etc/machine-id":            "0123456789abcdef0123456789abcdef\n",
-		"proc/sys/kernel/osrelease": "6.8.0-45-generic\n",
-		"proc/uptime":               "12345.67 5000.00\n",
-		"proc/meminfo":              meminfoFixture,
-		"proc/mounts":               mountsFixture,
+		"etc/os-release":                 osRelease,
+		"etc/machine-id":                 "0123456789abcdef0123456789abcdef\n",
+		"proc/sys/kernel/osrelease":      "6.8.0-45-generic\n",
+		"proc/uptime":                    "12345.67 5000.00\n",
+		"proc/meminfo":                   meminfoFixture,
+		"proc/mounts":                    mountsFixture,
+		"proc/sys/kernel/random/boot_id": "8a1c2f3e-0000-4000-8000-000000000001\n",
+		"run/reboot-required":            "*** System restart required ***\n",
+		"run/reboot-required.pkgs":       "linux-image-6.8.0-50-generic\nlinux-image-6.8.0-50-generic\n",
+		"run/systemd/shutdown/scheduled": "USEC=1700000000000000\nWARNALL=1\nMODE=reboot\n",
+		"usr/sbin/needrestart":           "",
 	}
 	for p, c := range files {
 		full := filepath.Join(root, p)
@@ -190,7 +195,10 @@ func asJSON(t *testing.T, v any) string {
 func TestRunTool(t *testing.T) {
 	fake := &runner.Fake{Responses: map[string]runner.Response{
 		"dpkg-query -W -f ${Package}\t${Version}\t${Architecture}\t${db:Status-Abbrev}\n": {Stdout: dpkgFixture},
-		"apt list --upgradable": {Stdout: aptListFixture, Stderr: "WARNING: apt does not have a stable CLI interface."},
+		"apt list --upgradable":         {Stdout: aptListFixture, Stderr: "WARNING: apt does not have a stable CLI interface."},
+		"apt-mark showhold":             {Stdout: "curl\n"},
+		"/usr/bin/apt-get -q update":    {Stdout: "Hit:1 http://archive.example.com noble InRelease\n"},
+		"/usr/sbin/needrestart -b -r l": {Stdout: "NEEDRESTART-VER: 3.6\nNEEDRESTART-KSTA: 1\nNEEDRESTART-SVC: nginx.service\nNEEDRESTART-SVC: php8.3-fpm.service\n"},
 		"systemctl show nginx.service --no-pager -p Id -p ActiveState -p SubState -p LoadState -p UnitFileState -p ActiveEnterTimestamp": {Stdout: systemctlFixture},
 		"journalctl -u nginx.service -n 20 -o short-iso --no-pager -q":                                                                   {Stdout: journalFixture},
 		"journalctl -u nginx.service -n 100 -o short-iso --no-pager -q":                                                                  {Stdout: ""},
@@ -211,6 +219,13 @@ func TestRunTool(t *testing.T) {
 		{"packages", `{"names":["openssl"]}`, `[{"arch":"amd64","name":"openssl","version":"3.0.13-0ubuntu3.1"}]`, ""},
 		{"packages", `{"names":["bad;name"]}`, "", "bad args"},
 		{"pending_updates", `{}`, `"security":true`, ""},
+		{"pending_updates", `{}`, `"held":true,"name":"curl"`, ""},
+		{"pending_updates", `{"refresh":true}`, `"security":true`, ""},
+		{"pending_updates", `{"refresh":"yes"}`, "", "bad args"},
+		{"boot", `{}`, `"boot_id":"8a1c2f3e-0000-4000-8000-000000000001"`, ""},
+		{"boot", `{}`, `"reboot_required":true,"reboot_required_by":["linux-image-6.8.0-50-generic"]`, ""},
+		{"boot", `{}`, `"scheduled_shutdown":{"at":"2023-11-14T22:13:20Z","mode":"reboot"}`, ""},
+		{"services_needing_restart", `{}`, `{"services":["nginx.service","php8.3-fpm.service"]}`, ""},
 		{"service_status", `{"unit":"nginx.service"}`, `"active_state":"active"`, ""},
 		{"service_status", `{"unit":"nginx"}`, "", "bad args"},
 		{"service_status", `{}`, "", "bad args"},
@@ -260,13 +275,14 @@ func TestDnfTools(t *testing.T) {
 		"dnf -q check-update": {Stdout: dnfCheckFixture, ExitCode: 100},
 		"rpm -qa --queryformat %{NAME}\t%|EPOCH?{%{EPOCH}:}:{}|%{VERSION}-%{RELEASE}\t%{ARCH}\n": {Stdout: rpmFixture},
 		"dnf -q updateinfo list --security": {Stdout: dnfSecurityFixture},
+		"dnf -q versionlock list":           {Stdout: "bash-0:5.1.8-9.el9.*\n"},
 	}}
 	e := testEnv(t, "dnf", fake)
 	res, err := e.RunTool(context.Background(), "pending_updates", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := asJSON(t, res); got != `[{"candidate":"1:3.0.7-28.el9_4","current":"1:3.0.7-27.el9","name":"openssl","security":true},{"candidate":"5.1.8-9.el9_4","current":"5.1.8-9.el9","name":"bash","security":false}]` {
+	if got := asJSON(t, res); got != `[{"candidate":"1:3.0.7-28.el9_4","current":"1:3.0.7-27.el9","held":false,"name":"openssl","security":true},{"candidate":"5.1.8-9.el9_4","current":"5.1.8-9.el9","held":true,"name":"bash","security":false}]` {
 		t.Fatalf("pending = %s", got)
 	}
 	fake.Responses["dnf -q check-update"] = runner.Response{ExitCode: 1}
@@ -285,7 +301,8 @@ func TestNoPackageManager(t *testing.T) {
 func TestFactsAndDetect(t *testing.T) {
 	e := testEnv(t, "apt", &runner.Fake{})
 	f := e.Facts()
-	want := Facts{Hostname: "web-01", OS: OSInfo{"ubuntu", "24.04", "Ubuntu 24.04.1 LTS"}, Kernel: "6.8.0-45-generic", UptimeSeconds: 12345, PackageManager: "apt"}
+	want := Facts{Hostname: "web-01", OS: OSInfo{"ubuntu", "24.04", "Ubuntu 24.04.1 LTS"}, Kernel: "6.8.0-45-generic", UptimeSeconds: 12345, PackageManager: "apt",
+		BootID: "8a1c2f3e-0000-4000-8000-000000000001", RebootRequired: "yes"}
 	if f != want {
 		t.Fatalf("facts = %+v", f)
 	}
@@ -308,8 +325,46 @@ func TestFactsAndDetect(t *testing.T) {
 }
 
 func TestToolNames(t *testing.T) {
-	want := []string{"disk", "journal", "memory", "os", "packages", "pending_updates", "ports", "service_status", "sessions"}
+	want := []string{"boot", "disk", "journal", "memory", "os", "packages", "pending_updates", "ports", "service_status", "services_needing_restart", "sessions"}
 	if got := ToolNames(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tools = %v", got)
+	}
+}
+
+func TestBootWithoutPendingReboot(t *testing.T) {
+	e := testEnv(t, "apt", &runner.Fake{})
+	for _, p := range []string{"run/reboot-required", "run/systemd/shutdown/scheduled"} {
+		if err := os.Remove(filepath.Join(e.Root, p)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := e.RunTool(context.Background(), "boot", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := asJSON(t, res); !strings.Contains(got, `"reboot_required":false,"reboot_required_by":[],"scheduled_shutdown":null`) {
+		t.Fatalf("boot = %s", got)
+	}
+}
+
+func TestServicesNeedingRestart(t *testing.T) {
+	e := testEnv(t, "apt", &runner.Fake{Responses: map[string]runner.Response{
+		"/usr/bin/sudo -n -- /usr/sbin/needrestart -b -r l": {Stdout: "NEEDRESTART-SVC: nginx.service\n"},
+	}})
+	e.UseSudo = true
+	if res, err := e.RunTool(context.Background(), "services_needing_restart", nil); err != nil || asJSON(t, res) != `{"services":["nginx.service"]}` {
+		t.Fatalf("needrestart through sudo = %v, %v", res, err)
+	}
+	if err := os.Remove(filepath.Join(e.Root, "usr/sbin/needrestart")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.RunTool(context.Background(), "services_needing_restart", nil); err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("missing needrestart: %v", err)
+	}
+	if got := ParseNeedsRestartingServices("sshd\nnginx.service\n\nbad name\n"); !reflect.DeepEqual(got, []string{"sshd.service", "nginx.service"}) {
+		t.Fatalf("needs-restarting = %v", got)
+	}
+	if got := ParseDnfVersionlock("Last metadata expiration check:\nnginx-1:1.20.1-14.el9.*\n!bash-0:5.1.8-9.el9.*\n"); !reflect.DeepEqual(got, map[string]bool{"nginx": true, "bash": true}) {
+		t.Fatalf("versionlock = %v", got)
 	}
 }

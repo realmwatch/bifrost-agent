@@ -4,12 +4,17 @@
 # package manager if you like.
 #
 # A sudoers "*" matches any arguments, spaces included. The agent only ever fills
-# it with one schema-checked argument, but anyone who controls the agent's user can
-# run these commands with other arguments: protect that user like root.
+# it with schema-checked arguments (one, or one per item of a package list), but
+# anyone who controls the agent's user can run these commands with other arguments:
+# protect that user like root.
 
 Defaults:bifrost env_keep += "DEBIAN_FRONTEND"
 
 # Every package manager
+# service.disable@1
+bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl disable *
+# service.enable@1
+bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl enable *
 # service.reload@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl reload *
 # service.restart@1
@@ -18,15 +23,33 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl restart *
 bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl start *
 # service.stop@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl stop *
+# system.reboot@1
+bifrost ALL=(root) NOPASSWD: /usr/sbin/shutdown -r +1
 
 # apt (Debian, Ubuntu)
 # package.install@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-get -q -y -o Dpkg\:\:Options\:\:\=--force-confdef -o Dpkg\:\:Options\:\:\=--force-confold install --allow-downgrades *
-# package.upgrade@1
+# package.upgrade@1, packages.upgrade@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-get -q -y -o Dpkg\:\:Options\:\:\=--force-confdef -o Dpkg\:\:Options\:\:\=--force-confold install --only-upgrade *
+# package.refresh@1, state tool pending_updates (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/bin/apt-get -q update
+# package.hold@1
+bifrost ALL=(root) NOPASSWD: /usr/bin/apt-mark hold *
+# package.unhold@1
+bifrost ALL=(root) NOPASSWD: /usr/bin/apt-mark unhold *
+# state tool services_needing_restart (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/sbin/needrestart -b -r l
 
 # dnf (RHEL family)
+# package.refresh@1, state tool pending_updates (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -q makecache
+# state tool services_needing_restart (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -q needs-restarting -s
 # package.install@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -y install *
-# package.upgrade@1
+# package.upgrade@1, packages.upgrade@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -y upgrade *
+# package.hold@1
+bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -y versionlock add *
+# package.unhold@1
+bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -y versionlock delete *

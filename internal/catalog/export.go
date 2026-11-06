@@ -17,6 +17,7 @@ type exportOp struct {
 	DryRun       bool            `json:"dry_run"`
 	Rollback     *string         `json:"rollback"`
 	Irreversible bool            `json:"irreversible"`
+	Reboots      bool            `json:"reboots,omitempty"`
 	HealthCheck  string          `json:"health_check"`
 	FilesWritten []string        `json:"files_written"`
 }
@@ -33,7 +34,7 @@ func (c *Catalog) Export(catalogVersion string) ([]byte, error) {
 		op := exportOp{
 			Name: d.Name, Version: d.Version, Description: d.Description,
 			MinTier: d.MinTier.String(), Params: d.ParamsRaw, DryRun: len(d.DryRunArgv) > 0,
-			Irreversible: d.Irreversible, HealthCheck: d.HealthCheck, FilesWritten: d.FilesWritten,
+			Irreversible: d.Irreversible, Reboots: d.Reboots, HealthCheck: d.HealthCheck, FilesWritten: d.FilesWritten,
 		}
 		if d.Rollback != "" {
 			rb := d.Rollback
@@ -101,11 +102,30 @@ func (c *Catalog) Sudoers(user string) string {
 	b.WriteString("# `visudo -cf /etc/sudoers.d/bifrost-agent`. Keep only the section for this server's\n")
 	b.WriteString("# package manager if you like.\n#\n")
 	b.WriteString("# A sudoers \"*\" matches any arguments, spaces included. The agent only ever fills\n")
-	b.WriteString("# it with one schema-checked argument, but anyone who controls the agent's user can\n")
-	b.WriteString("# run these commands with other arguments: protect that user like root.\n")
+	b.WriteString("# it with schema-checked arguments (one, or one per item of a package list), but\n")
+	b.WriteString("# anyone who controls the agent's user can run these commands with other arguments:\n")
+	b.WriteString("# protect that user like root.\n")
 	if len(envKeep) > 0 {
 		keys := sortedKeys(envKeep)
 		fmt.Fprintf(&b, "\nDefaults:%s env_keep += \"%s\"\n", user, strings.Join(keys, " "))
+	}
+	for _, tool := range sortedKeys(func() map[string]bool {
+		m := map[string]bool{}
+		for k := range PrivilegedReads {
+			m[k] = true
+		}
+		return m
+	}()) {
+		for _, pm := range PackageManagers {
+			argv, ok := PrivilegedReads[tool][pm]
+			if !ok {
+				continue
+			}
+			if perPM[pm] == nil {
+				perPM[pm] = map[string]*rule{}
+			}
+			add(perPM[pm], strings.Join(argv, " "), "state tool "+tool+" (read-only)")
+		}
 	}
 	writeRules := func(title string, m map[string]*rule) {
 		if len(m) == 0 {

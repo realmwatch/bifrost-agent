@@ -26,10 +26,44 @@ const (
 // PackageManagers lists every supported package manager.
 var PackageManagers = []string{PackageManagerApt, PackageManagerDnf}
 
-// Health checks implemented in Go, with the arguments each one takes.
-var healthChecks = map[string][]string{
-	"package_version": {"name", "version"},
-	"service_state":   {"state", "unit"},
+// AgentUnit is the agent's own systemd unit.
+const AgentUnit = "bifrost-agent.service"
+
+// SudoArgv prefixes privileged commands.
+var SudoArgv = []string{"/usr/bin/sudo", "-n", "--"}
+
+// PrivilegedReads are the read-only commands state tools run through sudo,
+// by tool and package manager. They take no arguments from the hub, so
+// their sudo rules are exact.
+var PrivilegedReads = map[string]map[string][]string{
+	// pending_updates with refresh: the same commands as package.refresh@1.
+	"pending_updates": {
+		PackageManagerApt: {"/usr/bin/apt-get", "-q", "update"},
+		PackageManagerDnf: {"/usr/bin/dnf", "-q", "makecache"},
+	},
+	"services_needing_restart": {
+		PackageManagerApt: {"/usr/sbin/needrestart", "-b", "-r", "l"},
+		PackageManagerDnf: {"/usr/bin/dnf", "-q", "needs-restarting", "-s"},
+	},
+}
+
+// healthCheck describes a health check implemented in Go: the templated
+// string arguments it takes, sorted, and optionally one argument that names
+// a list param (as "{param}") whose items each have a name and a version.
+type healthCheck struct {
+	args []string
+	list string
+}
+
+// Health checks implemented in Go.
+var healthChecks = map[string]healthCheck{
+	"exit_status":      {},
+	"package_held":     {args: []string{"held", "name"}},
+	"package_version":  {args: []string{"name", "version"}},
+	"package_versions": {list: "packages"},
+	"reboot_scheduled": {},
+	"service_state":    {args: []string{"state", "unit"}},
+	"unit_file_state":  {args: []string{"state", "unit"}},
 }
 
 // Tier is a risk tier. Higher is riskier.
@@ -85,6 +119,7 @@ type fileDef struct {
 	Params       json.RawMessage `json:"params"`
 	Rollback     *string         `json:"rollback"`
 	Irreversible bool            `json:"irreversible"`
+	Reboots      bool            `json:"reboots"`
 	HealthCheck  string          `json:"health_check"`
 	FilesWritten []string        `json:"files_written"`
 	Agent        agentPart       `json:"agent"`
@@ -100,6 +135,9 @@ type Definition struct {
 	Params       *schema.Schema
 	Rollback     string
 	Irreversible bool
+	// Reboots marks an operation that restarts the host: it may only be
+	// the last operation of an envelope and never a rollback step.
+	Reboots      bool
 	HealthCheck  string
 	FilesWritten []string
 
@@ -125,8 +163,11 @@ type Catalog struct {
 var (
 	nameRe        = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
 	placeholderRe = regexp.MustCompile(`\{([a-z_][a-z0-9_]*)\}`)
-	fileRe        = regexp.MustCompile(`^(.+)@([0-9]+)\.json$`)
-	envNameRe     = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	// repeatRe matches a list argument, "{*param:template}": one argument per
+	// item of the list param, each filled from that item's fields.
+	repeatRe  = regexp.MustCompile(`^\{\*([a-z_][a-z0-9_]*):(.+)\}$`)
+	fileRe    = regexp.MustCompile(`^(.+)@([0-9]+)\.json$`)
+	envNameRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 )
 
 // Embedded loads the definitions compiled into this binary.
@@ -227,7 +268,7 @@ func parseDefinition(data []byte) (*Definition, error) {
 	}
 	d := &Definition{
 		Name: fd.Name, Version: fd.Version, Description: fd.Description, MinTier: tier,
-		ParamsRaw: compact.Bytes(), Params: ps, Irreversible: fd.Irreversible,
+		ParamsRaw: compact.Bytes(), Params: ps, Irreversible: fd.Irreversible, Reboots: fd.Reboots,
 		HealthCheck: fd.HealthCheck, FilesWritten: fd.FilesWritten,
 		Privileged: fd.Agent.Privileged, Argv: fd.Agent.Argv, DryRunArgv: fd.Agent.DryRunArgv,
 		Env: fd.Agent.Env, Sudo: fd.Agent.Sudo, Health: fd.Agent.Health,
@@ -239,6 +280,9 @@ func parseDefinition(data []byte) (*Definition, error) {
 		d.Rollback = *fd.Rollback
 		if d.Irreversible {
 			return nil, fmt.Errorf("an irreversible operation cannot name a rollback")
+		}
+		if d.Reboots {
+			return nil, fmt.Errorf("an operation that reboots cannot name a rollback")
 		}
 	}
 
@@ -287,13 +331,24 @@ func parseDefinition(data []byte) (*Definition, error) {
 			}
 		}
 	}
-	wantArgs, ok := healthChecks[d.Health.Check]
+	hc, ok := healthChecks[d.Health.Check]
 	if !ok {
 		return nil, fmt.Errorf("unknown health check %q", d.Health.Check)
 	}
+	wantArgs := append([]string{}, hc.args...)
+	if hc.list != "" {
+		wantArgs = append(wantArgs, hc.list)
+	}
+	sort.Strings(wantArgs)
 	gotArgs := make([]string, 0, len(d.Health.Args))
 	for k, v := range d.Health.Args {
 		gotArgs = append(gotArgs, k)
+		if k == hc.list {
+			if err := checkHealthList(v, ps); err != nil {
+				return nil, fmt.Errorf("health arg %s: %w", k, err)
+			}
+			continue
+		}
 		if err := checkElement(v, ps); err != nil {
 			return nil, fmt.Errorf("health arg %s: %w", k, err)
 		}
@@ -303,6 +358,56 @@ func parseDefinition(data []byte) (*Definition, error) {
 		return nil, fmt.Errorf("health check %s takes args %v", d.Health.Check, wantArgs)
 	}
 	return d, nil
+}
+
+// checkHealthList checks a list health argument: "{param}" naming a
+// required list param whose items have required string name and version
+// fields.
+func checkHealthList(v string, ps *schema.Schema) error {
+	m := placeholderRe.FindStringSubmatch(v)
+	if m == nil || m[0] != v {
+		return fmt.Errorf("must be exactly one {param}")
+	}
+	items, err := listItems(m[1], ps)
+	if err != nil {
+		return err
+	}
+	for _, field := range []string{"name", "version"} {
+		f, ok := items.Properties[field]
+		if !ok || f.Type != "string" || !isRequired(items, field) {
+			return fmt.Errorf("items of {%s} need a required string %q", m[1], field)
+		}
+	}
+	return nil
+}
+
+// listItems returns the item schema of a list param, which must be
+// required, bounded (minItems at least 1 and a maxItems) and hold closed
+// objects.
+func listItems(name string, ps *schema.Schema) (*schema.Schema, error) {
+	p, ok := ps.Properties[name]
+	if !ok {
+		return nil, fmt.Errorf("{%s} is not a declared param", name)
+	}
+	if p.Type != "array" || p.Items == nil || p.Items.Type != "object" || !p.Items.ClosedObject {
+		return nil, fmt.Errorf("{%s} must be an array of closed objects", name)
+	}
+	if p.MinItems == nil || *p.MinItems < 1 || p.MaxItems == nil {
+		return nil, fmt.Errorf("{%s} needs minItems of at least 1 and a maxItems", name)
+	}
+	if !isRequired(ps, name) {
+		return nil, fmt.Errorf("{%s} must be a required param", name)
+	}
+	return p.Items, nil
+}
+
+func isRequired(ps *schema.Schema, name string) bool {
+	for _, r := range ps.Required {
+		if r == name {
+			return true
+		}
+	}
+	return false
 }
 
 func knownPM(pm string) bool {
@@ -321,9 +426,25 @@ func checkTemplate(argv []string, ps *schema.Schema) error {
 	if !strings.HasPrefix(argv[0], "/") || strings.Contains(argv[0], "{") {
 		return fmt.Errorf("argv[0] must be an absolute path without placeholders")
 	}
-	for _, el := range argv {
+	for i, el := range argv {
 		if el == "" {
 			return fmt.Errorf("empty argument")
+		}
+		if m := repeatRe.FindStringSubmatch(el); m != nil {
+			if i != len(argv)-1 {
+				return fmt.Errorf("a list argument {*%s:...} must be the last argument", m[1])
+			}
+			items, err := listItems(m[1], ps)
+			if err != nil {
+				return err
+			}
+			if !placeholderRe.MatchString(m[2]) {
+				return fmt.Errorf("list argument {*%s:...} must use the item's fields", m[1])
+			}
+			if err := checkElement(m[2], items); err != nil {
+				return fmt.Errorf("list argument {*%s:...}: %w", m[1], err)
+			}
+			continue
 		}
 		if err := checkElement(el, ps); err != nil {
 			return err
@@ -345,11 +466,7 @@ func checkElement(el string, ps *schema.Schema) error {
 		if p.Type != "string" && p.Type != "integer" {
 			return fmt.Errorf("placeholder {%s} must be a string or integer param", m[1])
 		}
-		required := false
-		for _, r := range ps.Required {
-			required = required || r == m[1]
-		}
-		if !required {
+		if !isRequired(ps, m[1]) {
 			return fmt.Errorf("placeholder {%s} must be a required param", m[1])
 		}
 	}
@@ -357,7 +474,8 @@ func checkElement(el string, ps *schema.Schema) error {
 }
 
 // SudoRule derives the sudo command pattern for an argument list: every
-// argument that holds a placeholder becomes a "*".
+// argument that holds a placeholder, including a list argument, becomes a
+// "*".
 func SudoRule(argv []string) string {
 	out := make([]string, len(argv))
 	for i, el := range argv {
@@ -466,15 +584,48 @@ func (d *Definition) ExpandDryRun(pm string, params map[string]any) (*Expanded, 
 	return &Expanded{Argv: argv, Env: d.envFor(pm)}, nil
 }
 
-// HealthArgs fills the health check arguments with params.
+// HealthArgs fills the health check's string arguments with params. A
+// list argument is left out: see HealthList.
 func (d *Definition) HealthArgs(params map[string]any) (map[string]string, error) {
 	out := map[string]string{}
+	list := healthChecks[d.Health.Check].list
 	for k, v := range d.Health.Args {
+		if k == list {
+			continue
+		}
 		s, err := fillOne(v, params)
 		if err != nil {
 			return nil, err
 		}
 		out[k] = s
+	}
+	return out, nil
+}
+
+// NameVersion is one item of a list health argument.
+type NameVersion struct {
+	Name    string
+	Version string
+}
+
+// HealthList returns the items of the health check's list argument, or nil
+// if it has none.
+func (d *Definition) HealthList(params map[string]any) ([]NameVersion, error) {
+	list := healthChecks[d.Health.Check].list
+	if list == "" {
+		return nil, nil
+	}
+	param := strings.Trim(d.Health.Args[list], "{}")
+	raw, _ := params[param].([]any)
+	out := make([]NameVersion, 0, len(raw))
+	for i, item := range raw {
+		m, _ := item.(map[string]any)
+		name, _ := m["name"].(string)
+		version, _ := m["version"].(string)
+		if name == "" || version == "" {
+			return nil, fmt.Errorf("%s[%d] needs a name and a version", param, i)
+		}
+		out = append(out, NameVersion{Name: name, Version: version})
 	}
 	return out, nil
 }
@@ -494,13 +645,31 @@ func (d *Definition) envFor(pm string) []string {
 }
 
 func fill(tmpl []string, params map[string]any) ([]string, error) {
-	out := make([]string, len(tmpl))
-	for i, el := range tmpl {
+	out := make([]string, 0, len(tmpl))
+	for _, el := range tmpl {
+		if m := repeatRe.FindStringSubmatch(el); m != nil {
+			items, ok := params[m[1]].([]any)
+			if !ok || len(items) == 0 {
+				return nil, fmt.Errorf("param %q must be a non-empty list", m[1])
+			}
+			for i, item := range items {
+				fields, ok := item.(map[string]any)
+				if !ok {
+					return nil, fmt.Errorf("%s[%d] must be an object", m[1], i)
+				}
+				s, err := fillOne(m[2], fields)
+				if err != nil {
+					return nil, fmt.Errorf("%s[%d]: %w", m[1], i, err)
+				}
+				out = append(out, s)
+			}
+			continue
+		}
 		s, err := fillOne(el, params)
 		if err != nil {
 			return nil, err
 		}
-		out[i] = s
+		out = append(out, s)
 	}
 	return out, nil
 }

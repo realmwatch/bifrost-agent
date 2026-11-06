@@ -3,8 +3,8 @@
 //
 // Supported keywords: type (object, string, integer, boolean, array),
 // properties, required, additionalProperties (false only), pattern, enum,
-// minLength, maxLength, minimum, maximum, items, plus the annotations
-// description and title. Any other keyword fails at compile time, so a
+// minLength, maxLength, minimum, maximum, items, minItems, maxItems, plus
+// the annotations description and title. Any other keyword fails at compile time, so a
 // definition can never rely on a check this validator silently skips.
 package schema
 
@@ -33,13 +33,15 @@ type Schema struct {
 	Minimum      *float64
 	Maximum      *float64
 	Items        *Schema
+	MinItems     *int
+	MaxItems     *int
 	Description  string
 }
 
 var allowedKeywords = map[string]bool{
 	"type": true, "properties": true, "required": true, "additionalProperties": true,
 	"pattern": true, "enum": true, "minLength": true, "maxLength": true,
-	"minimum": true, "maximum": true, "items": true, "description": true, "title": true,
+	"minimum": true, "maximum": true, "items": true, "minItems": true, "maxItems": true, "description": true, "title": true,
 }
 
 var allowedTypes = map[string]bool{"object": true, "string": true, "integer": true, "boolean": true, "array": true}
@@ -99,6 +101,7 @@ func compileNode(raw any, path string) (*Schema, error) {
 		"properties": {"object"}, "required": {"object"}, "additionalProperties": {"object"},
 		"pattern": {"string"}, "minLength": {"string"}, "maxLength": {"string"},
 		"minimum": {"integer"}, "maximum": {"integer"}, "items": {"array"},
+		"minItems": {"array"}, "maxItems": {"array"},
 		"enum": {"string", "integer"},
 	} {
 		if err := only(kw, types...); err != nil {
@@ -159,6 +162,12 @@ func compileNode(raw any, path string) (*Schema, error) {
 		return nil, err
 	}
 	if s.MaxLength, err = intKeyword(obj, "maxLength", path); err != nil {
+		return nil, err
+	}
+	if s.MinItems, err = intKeyword(obj, "minItems", path); err != nil {
+		return nil, err
+	}
+	if s.MaxItems, err = intKeyword(obj, "maxItems", path); err != nil {
 		return nil, err
 	}
 	if s.Minimum, err = numKeyword(obj, "minimum", path); err != nil {
@@ -284,6 +293,13 @@ func (s *Schema) validate(v any, path string) error {
 			return at("greater than maximum %v", *s.Maximum)
 		}
 	case "array":
+		n := len(v.([]any))
+		if s.MinItems != nil && n < *s.MinItems {
+			return at("fewer than %d items", *s.MinItems)
+		}
+		if s.MaxItems != nil && n > *s.MaxItems {
+			return at("more than %d items", *s.MaxItems)
+		}
 		if s.Items != nil {
 			for i, item := range v.([]any) {
 				if err := s.Items.validate(item, fmt.Sprintf("%s[%d]", path, i)); err != nil {

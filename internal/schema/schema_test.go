@@ -131,3 +131,22 @@ func TestMaxLengthCountsCharacters(t *testing.T) {
 		t.Fatalf("two characters rejected: %v", err)
 	}
 }
+
+func TestItemCounts(t *testing.T) {
+	s, err := Compile([]byte(`{"type":"array","minItems":1,"maxItems":2,"items":{"type":"string","enum":["a"]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n, wantErr := range map[int]bool{0: true, 1: false, 2: false, 3: true} {
+		items := make([]any, n)
+		for i := range items {
+			items[i] = "a"
+		}
+		if err := s.Validate(items); (err != nil) != wantErr {
+			t.Errorf("%d items: err = %v", n, err)
+		}
+	}
+	if _, err := Compile([]byte(`{"type":"string","minItems":1}`)); err == nil {
+		t.Error("minItems on a string accepted")
+	}
+}

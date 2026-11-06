@@ -26,6 +26,9 @@ type Update struct {
 	Current   string `json:"current"`
 	Candidate string `json:"candidate"`
 	Security  bool   `json:"security"`
+	// Held is true for a package held at its version (apt-mark hold, dnf
+	// versionlock): upgrading it fails until it is unheld.
+	Held bool `json:"held"`
 }
 
 // ServiceStatus is a systemd unit's state.
@@ -157,8 +160,18 @@ func ParseRpmQuery(out string) []Package {
 	return pkgs
 }
 
-func toolPendingUpdates(ctx context.Context, e *Env, _ map[string]any) (any, error) {
+func toolPendingUpdates(ctx context.Context, e *Env, args map[string]any) (any, error) {
 	if err := e.requirePM(); err != nil {
+		return nil, err
+	}
+	if refresh, _ := args["refresh"].(bool); refresh {
+		// Refresh the package lists first, so candidates are current.
+		if _, err := e.runOK(ctx, e.privileged(catalog.PrivilegedReads["pending_updates"][e.PackageManager])...); err != nil {
+			return nil, fmt.Errorf("refreshing the package lists: %w", err)
+		}
+	}
+	held, err := e.HeldPackages(ctx)
+	if err != nil {
 		return nil, err
 	}
 	if e.PackageManager == catalog.PackageManagerApt {
@@ -166,7 +179,7 @@ func toolPendingUpdates(ctx context.Context, e *Env, _ map[string]any) (any, err
 		if err != nil {
 			return nil, err
 		}
-		return ParseAptUpgradable(out), nil
+		return markHeld(ParseAptUpgradable(out), held), nil
 	}
 	out, code, err := e.run(ctx, "dnf", "-q", "check-update")
 	if err != nil {
@@ -187,7 +200,14 @@ func toolPendingUpdates(ctx context.Context, e *Env, _ map[string]any) (any, err
 	if sec, code, err := e.run(ctx, "dnf", "-q", "updateinfo", "list", "--security"); err == nil && code == 0 {
 		security = ParseDnfSecurity(sec)
 	}
-	return ParseDnfCheckUpdate(out, current, security), nil
+	return markHeld(ParseDnfCheckUpdate(out, current, security), held), nil
+}
+
+func markHeld(ups []Update, held map[string]bool) []Update {
+	for i := range ups {
+		ups[i].Held = held[ups[i].Name]
+	}
+	return ups
 }
 
 // ParseAptUpgradable parses `apt list --upgradable`.
