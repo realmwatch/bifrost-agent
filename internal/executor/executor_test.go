@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -315,5 +317,161 @@ func TestVersionMatches(t *testing.T) {
 		if got := VersionMatches(c.installed, c.want); got != c.ok {
 			t.Errorf("VersionMatches(%q, %q) = %v", c.installed, c.want, got)
 		}
+	}
+}
+
+const (
+	showAgent  = "systemctl show bifrost-agent.service --no-pager -p Id -p ActiveState -p SubState -p LoadState -p UnitFileState -p ActiveEnterTimestamp"
+	rebootArgv = "/usr/bin/sudo -n -- /usr/sbin/shutdown -r +1"
+)
+
+var reboot = []testkit.Step{{Op: "system.reboot", Version: 1, Params: map[string]any{}}}
+
+// rebootRoot is a fixture root with a boot ID and, if scheduled, the file
+// systemd writes for a scheduled reboot.
+func rebootRoot(t *testing.T, scheduled bool) string {
+	root := t.TempDir()
+	files := map[string]string{"proc/sys/kernel/random/boot_id": "8a1c2f3e-0000-4000-8000-000000000001\n"}
+	if scheduled {
+		files["run/systemd/shutdown/scheduled"] = "USEC=1793448060000000\nWARNALL=1\nMODE=reboot\n"
+	}
+	for p, c := range files {
+		full := filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func TestRebootSchedulesAndReportsBootID(t *testing.T) {
+	fake := &runner.Fake{Responses: map[string]runner.Response{
+		showAgent:  {Stdout: "Id=bifrost-agent.service\nActiveState=active\nSubState=running\nLoadState=loaded\nUnitFileState=enabled\n"},
+		rebootArgv: {},
+	}}
+	x, a := setup(t, fake)
+	x.State.Root = rebootRoot(t, true)
+	env := testkit.Envelope(reboot, nil, "2026-11-01T00:00:00Z", 1)
+	out, rec := run(t, x, env, []verify.Approval{a.Approve(env)})
+	if out.Result != ResultSucceeded {
+		t.Fatalf("result = %s; events %v", out.Result, rec.events)
+	}
+	var health hubclient.Event
+	for _, e := range rec.events {
+		if e["type"] == "health" {
+			health = e
+		}
+	}
+	if health["boot_id"] != "8a1c2f3e-0000-4000-8000-000000000001" || health["detail"] != "reboot scheduled for 2026-10-31T12:01:00Z" {
+		t.Fatalf("health = %v", health)
+	}
+}
+
+func TestRebootRefusedWhenAgentWouldNotStart(t *testing.T) {
+	fake := &runner.Fake{Responses: map[string]runner.Response{
+		showAgent: {Stdout: "Id=bifrost-agent.service\nActiveState=active\nUnitFileState=disabled\n"},
+	}}
+	x, a := setup(t, fake)
+	x.State.Root = rebootRoot(t, false)
+	env := testkit.Envelope(reboot, nil, "2026-11-01T00:00:00Z", 1)
+	out, rec := run(t, x, env, []verify.Approval{a.Approve(env)})
+	if out.Result != ResultFailed {
+		t.Fatalf("result = %s", out.Result)
+	}
+	for _, c := range fake.Calls {
+		if strings.Join(c.Argv, " ") == rebootArgv {
+			t.Fatal("shutdown ran although the agent doesn't start at boot")
+		}
+	}
+	var stderr string
+	for _, e := range rec.events {
+		if e["type"] == "output" {
+			stderr += e["data"].(string)
+		}
+	}
+	if !strings.Contains(stderr, "not rebooting") || !strings.Contains(stderr, "disabled") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+func TestRebootHealthFailsWithoutSchedule(t *testing.T) {
+	fake := &runner.Fake{Responses: map[string]runner.Response{
+		showAgent:  {Stdout: "UnitFileState=enabled\n"},
+		rebootArgv: {},
+	}}
+	x, a := setup(t, fake)
+	x.State.Root = rebootRoot(t, false)
+	env := testkit.Envelope(reboot, nil, "2026-11-01T00:00:00Z", 1)
+	if out, _ := run(t, x, env, []verify.Approval{a.Approve(env)}); out.Result != ResultFailed {
+		t.Fatalf("result = %s", out.Result)
+	}
+}
+
+func TestPackagesUpgradeChecksEveryVersion(t *testing.T) {
+	batch := "/usr/bin/sudo -n -- /usr/bin/apt-get -q -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold install --only-upgrade openssl=3.0.13-0ubuntu3.4 curl=8.5.0-2ubuntu10.5"
+	steps := []testkit.Step{{Op: "packages.upgrade", Version: 1, Params: map[string]any{"packages": []any{
+		map[string]any{"name": "openssl", "version": "3.0.13-0ubuntu3.4"},
+		map[string]any{"name": "curl", "version": "8.5.0-2ubuntu10.5"},
+	}}}}
+	for name, tc := range map[string]struct {
+		dpkg   string
+		result string
+		detail string
+	}{
+		"all upgraded": {"openssl\t3.0.13-0ubuntu3.4\tamd64\tii \ncurl\t8.5.0-2ubuntu10.5\tamd64\tii \n", ResultSucceeded, "all 2 packages are at the requested versions"},
+		"one behind":   {"openssl\t3.0.13-0ubuntu3.4\tamd64\tii \ncurl\t8.5.0-2ubuntu10.4\tamd64\tii \n", ResultFailed, "curl is at 8.5.0-2ubuntu10.4, want 8.5.0-2ubuntu10.5"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := &runner.Fake{Responses: map[string]runner.Response{batch: {}, dpkgArgv: {Stdout: tc.dpkg}}}
+			x, a := setup(t, fake)
+			env := testkit.Envelope(steps, nil, "2026-11-01T00:00:00Z", 1)
+			out, rec := run(t, x, env, []verify.Approval{a.Approve(env)})
+			if out.Result != tc.result {
+				t.Fatalf("result = %s; events %v", out.Result, rec.events)
+			}
+			for _, e := range rec.events {
+				if e["type"] == "health" && e["detail"] != tc.detail {
+					t.Fatalf("health detail = %v", e["detail"])
+				}
+			}
+		})
+	}
+}
+
+func TestHoldAndEnableHealth(t *testing.T) {
+	cases := []struct {
+		step     testkit.Step
+		argv     string
+		check    string
+		checkOut string
+		detail   string
+	}{
+		{testkit.Step{Op: "package.hold", Version: 1, Params: map[string]any{"name": "nginx"}},
+			"/usr/bin/sudo -n -- /usr/bin/apt-mark hold nginx", "apt-mark showhold", "nginx\n", "nginx is held"},
+		{testkit.Step{Op: "package.unhold", Version: 1, Params: map[string]any{"name": "nginx"}},
+			"/usr/bin/sudo -n -- /usr/bin/apt-mark unhold nginx", "apt-mark showhold", "", "nginx is not held"},
+		{testkit.Step{Op: "service.enable", Version: 1, Params: map[string]any{"unit": "nginx.service"}},
+			"/usr/bin/sudo -n -- /usr/bin/systemctl enable nginx.service", showNginx, "UnitFileState=enabled\n", "UnitFileState=enabled"},
+		{testkit.Step{Op: "package.refresh", Version: 1, Params: map[string]any{}},
+			"/usr/bin/sudo -n -- /usr/bin/apt-get -q update", "unused", "", "exited 0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.step.Op, func(t *testing.T) {
+			fake := &runner.Fake{Responses: map[string]runner.Response{tc.argv: {}, tc.check: {Stdout: tc.checkOut}}}
+			x, a := setup(t, fake)
+			env := testkit.Envelope([]testkit.Step{tc.step}, nil, "2026-11-01T00:00:00Z", 1)
+			out, rec := run(t, x, env, []verify.Approval{a.Approve(env)})
+			if out.Result != ResultSucceeded {
+				t.Fatalf("result = %s; events %v", out.Result, rec.events)
+			}
+			for _, e := range rec.events {
+				if e["type"] == "health" && e["detail"] != tc.detail {
+					t.Fatalf("health detail = %v", e["detail"])
+				}
+			}
+		})
 	}
 }

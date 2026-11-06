@@ -1,0 +1,38 @@
+{
+  "name": "package.refresh",
+  "version": 1,
+  "description": "Refresh the package lists from the configured repositories (apt-get update, dnf makecache).",
+  "min_tier": "low",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "rollback": null,
+  "irreversible": false,
+  "health_check": "The package manager exited successfully.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/bin/apt-get",
+        "-q",
+        "update"
+      ],
+      "dnf": [
+        "/usr/bin/dnf",
+        "-q",
+        "makecache"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/bin/apt-get -q update",
+      "dnf": "/usr/bin/dnf -q makecache"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

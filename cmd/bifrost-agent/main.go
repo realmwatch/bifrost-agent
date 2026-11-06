@@ -288,6 +288,7 @@ func cmdRun(args []string, stderr io.Writer) error {
 	cat := catalog.MustEmbedded()
 	env := state.NewEnv(runner.Exec{}, "")
 	env.PackageManager = resolvePM(cfg, env)
+	env.UseSudo = cfg.Sudo()
 	if env.PackageManager == "" {
 		log.Warn("no supported package manager detected; package operations and tools are unavailable")
 	}

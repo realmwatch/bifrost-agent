@@ -1,0 +1,39 @@
+{
+  "name": "system.reboot",
+  "version": 1,
+  "description": "Reboot the server one minute from now, which leaves the agent time to report. It must be the last operation, and the agent refuses it unless its own service starts at boot.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "rollback": null,
+  "irreversible": false,
+  "reboots": true,
+  "health_check": "A reboot is scheduled. The hub then checks that the server comes back with a new boot ID.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/sbin/shutdown",
+        "-r",
+        "+1"
+      ],
+      "dnf": [
+        "/usr/sbin/shutdown",
+        "-r",
+        "+1"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/sbin/shutdown -r +1",
+      "dnf": "/usr/sbin/shutdown -r +1"
+    },
+    "health": {
+      "check": "reboot_scheduled",
+      "args": {}
+    }
+  }
+}

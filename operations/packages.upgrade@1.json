@@ -1,0 +1,103 @@
+{
+  "name": "packages.upgrade",
+  "version": 1,
+  "description": "Upgrade several installed packages to given versions in one package manager run, so dependencies between them resolve together.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "packages"
+    ],
+    "properties": {
+      "packages": {
+        "type": "array",
+        "description": "Packages to upgrade, each to an exact version.",
+        "minItems": 1,
+        "maxItems": 500,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Package name.",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "version": {
+              "type": "string",
+              "description": "Exact version to upgrade to, as the package manager prints it.",
+              "pattern": "^[0-9][A-Za-z0-9.+~:_-]*$",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        }
+      }
+    }
+  },
+  "rollback": "package.install",
+  "irreversible": false,
+  "health_check": "Every package is installed at its requested version.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/bin/apt-get",
+        "-q",
+        "-y",
+        "-o",
+        "Dpkg::Options::=--force-confdef",
+        "-o",
+        "Dpkg::Options::=--force-confold",
+        "install",
+        "--only-upgrade",
+        "{*packages:{name}={version}}"
+      ],
+      "dnf": [
+        "/usr/bin/dnf",
+        "-y",
+        "upgrade",
+        "{*packages:{name}-{version}}"
+      ]
+    },
+    "dry_run_argv": {
+      "apt": [
+        "/usr/bin/apt-get",
+        "-s",
+        "install",
+        "--only-upgrade",
+        "{*packages:{name}={version}}"
+      ],
+      "dnf": [
+        "/usr/bin/dnf",
+        "-C",
+        "--assumeno",
+        "upgrade",
+        "{*packages:{name}-{version}}"
+      ]
+    },
+    "env": {
+      "apt": {
+        "DEBIAN_FRONTEND": "noninteractive"
+      }
+    },
+    "sudo": {
+      "apt": "/usr/bin/apt-get -q -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold install --only-upgrade *",
+      "dnf": "/usr/bin/dnf -y upgrade *"
+    },
+    "health": {
+      "check": "package_versions",
+      "args": {
+        "packages": "{packages}"
+      }
+    }
+  }
+}

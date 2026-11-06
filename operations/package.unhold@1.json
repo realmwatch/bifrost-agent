@@ -1,0 +1,54 @@
+{
+  "name": "package.unhold",
+  "version": 1,
+  "description": "Release a held package so upgrades include it again.",
+  "min_tier": "low",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "name"
+    ],
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Package name.",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    }
+  },
+  "rollback": "package.hold",
+  "irreversible": false,
+  "health_check": "The package is not held.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/bin/apt-mark",
+        "unhold",
+        "{name}"
+      ],
+      "dnf": [
+        "/usr/bin/dnf",
+        "-y",
+        "versionlock",
+        "delete",
+        "{name}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/bin/apt-mark unhold *",
+      "dnf": "/usr/bin/dnf -y versionlock delete *"
+    },
+    "health": {
+      "check": "package_held",
+      "args": {
+        "name": "{name}",
+        "held": "false"
+      }
+    }
+  }
+}

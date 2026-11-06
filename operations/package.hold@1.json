@@ -1,0 +1,54 @@
+{
+  "name": "package.hold",
+  "version": 1,
+  "description": "Hold one package at its installed version so upgrades leave it alone (apt-mark hold; on dnf, the versionlock plugin, which must be installed).",
+  "min_tier": "low",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "name"
+    ],
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Package name.",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    }
+  },
+  "rollback": "package.unhold",
+  "irreversible": false,
+  "health_check": "The package is held.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/bin/apt-mark",
+        "hold",
+        "{name}"
+      ],
+      "dnf": [
+        "/usr/bin/dnf",
+        "-y",
+        "versionlock",
+        "add",
+        "{name}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/bin/apt-mark hold *",
+      "dnf": "/usr/bin/dnf -y versionlock add *"
+    },
+    "health": {
+      "check": "package_held",
+      "args": {
+        "name": "{name}",
+        "held": "true"
+      }
+    }
+  }
+}

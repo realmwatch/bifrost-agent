@@ -95,7 +95,7 @@ Body: `{"events": [ {event}, ... ]}`, in order. Each event has `seq` (per execut
 | `step_started` | `phase`: `operations` or `rollback`; `index`; `op` (`name@version`); `argv` (the exact argument list) |
 | `output` | `phase`, `index`, `stream` (`stdout` or `stderr`), `data` (text chunk) |
 | `step_finished` | `phase`, `index`, `exit_code`, `duration_ms` |
-| `health` | `phase`, `index`, `ok`, `detail` |
+| `health` | `phase`, `index`, `ok`, `detail`; for an operation that reboots, `boot_id` (the boot ID before the reboot) |
 | `files_written` | `index`, `files`: `[{"path": "...", "sha256": "..."}]` |
 | `finished` | `result`: `succeeded`, `failed`, `rolled_back` or `rejected`; `before` and `after` (optional state snapshots) |
 
@@ -115,13 +115,15 @@ Read-only. Unknown tools or bad args return `ok: false`.
 | --- | --- | --- |
 | `os` | — | `/etc/os-release` fields, kernel, uptime, machine id, hostname |
 | `packages` | `names` (optional list) | `[{"name", "version", "arch"}]` |
-| `pending_updates` | — | `[{"name", "current", "candidate", "security": bool}]` |
+| `pending_updates` | — | `[{"name", "current", "candidate", "security": bool, "held": bool}]`; `held` is a package held at its version (`apt-mark hold`, dnf versionlock), which upgrades skip (agents before v0.3.0 leave it out) |
 | `service_status` | `unit` | `{"unit", "active_state", "sub_state", "load_state", "unit_file_state", "since"}` |
 | `journal` | `unit`, `lines` (≤ 500, default 100) | `{"lines": ["..."]}` |
 | `disk` | — | `[{"mount", "fs", "size_bytes", "used_bytes", "avail_bytes"}]` |
 | `memory` | — | `{"total_bytes", "available_bytes", "swap_total_bytes", "swap_free_bytes"}` |
 | `ports` | — | `[{"proto", "address", "port", "process"}]` |
 | `sessions` | — | `[{"user", "tty", "from", "since"}]` |
+| `boot` | — | `{"boot_id", "uptime_seconds", "kernel", "reboot_required": bool or null, "reboot_required_by": ["package"], "scheduled_shutdown": {"mode", "at"} or null}`; `reboot_required` is null where the system can't tell (v0.3.0) |
+| `services_needing_restart` | — | `{"services": ["nginx.service"]}`: services still running old copies of upgraded libraries, from `needrestart` (apt) or `dnf needs-restarting -s`, run through an exact sudo rule (v0.3.0) |
 
 ## Operations catalog
 
@@ -149,7 +151,9 @@ The agent repository's `operations/*.json` is the source of truth: one file per 
 
 `timeout_seconds` (optional, a positive integer) is how long one run of the step may take; the hub uses it for execution deadlines.
 
-The agent-only part of each definition adds `argv` per package manager (`apt`, `dnf`), with `{param}` placeholders that each fill exactly one argument and are never passed to a shell, plus `dry_run_argv` and `sudo`. Every parameter must match its schema (types, `pattern`, `enum`, `maxLength`) on both sides before use.
+`reboots` (optional, only present when true) marks an operation that restarts the host, such as `system.reboot`. It may only be the last operation of an envelope and never a rollback step; the agent rejects anything else. It schedules the reboot a minute ahead so the agent can report first, and refuses unless the agent's own unit starts at boot. The hub then checks that the host comes back with a new boot ID (the `boot` tool).
+
+The agent-only part of each definition adds `argv` per package manager (`apt`, `dnf`), with `{param}` placeholders that each fill exactly one argument and are never passed to a shell, plus `dry_run_argv` and `sudo`. A list argument, `{*param:template}`, fills one argument per item of a list param (for `packages.upgrade`, `{*packages:{name}={version}}`); it must be the last argument. Every parameter must match its schema (types, `pattern`, `enum`, `maxLength`) on both sides before use.
 
 Risk tiers, lowest first: `low`, `medium`, `high`, `critical`.
 

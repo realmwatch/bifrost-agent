@@ -310,6 +310,15 @@ func TestVerify(t *testing.T) {
 			m["rollback"] = []any{map[string]any{"op": "package.install", "version": 1, "params": map[string]any{"name": "openssl"}}}
 		}), approvals: good, wantCheck: 5, wantIn: "rollback[0]"},
 		{name: "package op without package manager", envelope: std, approvals: good, setup: func(v *Verifier) { v.PackageManager = "" }, wantCheck: 5, wantIn: "not supported"},
+		{name: "reboot last accepted", envelope: with(func(m map[string]any) {
+			m["operations"] = append(m["operations"].([]any), map[string]any{"op": "system.reboot", "version": 1, "params": map[string]any{}})
+		}), approvals: good},
+		{name: "reboot not last", envelope: with(func(m map[string]any) {
+			m["operations"] = append([]any{map[string]any{"op": "system.reboot", "version": 1, "params": map[string]any{}}}, m["operations"].([]any)...)
+		}), approvals: good, wantCheck: 5, wantIn: "must be the last operation"},
+		{name: "reboot as rollback", envelope: with(func(m map[string]any) {
+			m["rollback"] = append(m["rollback"].([]any), map[string]any{"op": "system.reboot", "version": 1, "params": map[string]any{}})
+		}), approvals: good, wantCheck: 5, wantIn: "can't be a rollback step"},
 
 		// 6. deny rules
 		{name: "deny rule", envelope: std, approvals: good, setup: func(v *Verifier) {
@@ -517,5 +526,29 @@ func TestParseTrustedKeysRejects(t *testing.T) {
 	one := strings.TrimSuffix(strings.TrimPrefix(pk(func(map[string]any) {}), `{"keys":[`), `],"v":1}`)
 	if _, err := ParseTrustedKeys([]byte(`{"v":1,"keys":[` + one + "," + one + `]}`)); err == nil {
 		t.Fatal("duplicate key_id accepted")
+	}
+}
+
+func TestAgentUnitDenyRule(t *testing.T) {
+	cat := catalog.MustEmbedded()
+	for _, tc := range []struct {
+		op     string
+		unit   string
+		denied bool
+	}{
+		{"service.stop", "bifrost-agent.service", true},
+		{"service.disable", "bifrost-agent.service", true},
+		{"service.restart", "bifrost-agent.service", false},
+		{"service.stop", "nginx.service", false},
+	} {
+		def, _ := cat.Get(tc.op, 1)
+		denied := false
+		for _, rule := range CompiledDenyRules {
+			_, d := rule.Match(def, map[string]any{"unit": tc.unit})
+			denied = denied || d
+		}
+		if denied != tc.denied {
+			t.Errorf("%s %s denied = %v, want %v", tc.op, tc.unit, denied, tc.denied)
+		}
 	}
 }

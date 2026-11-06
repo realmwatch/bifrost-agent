@@ -40,6 +40,9 @@ type Env struct {
 	Hostname func() (string, error)
 	// PackageManager is "apt" or "dnf"; empty means unknown.
 	PackageManager string
+	// UseSudo runs the tools' privileged reads (catalog.PrivilegedReads)
+	// through sudo.
+	UseSudo bool
 }
 
 // NewEnv returns an Env for the real system.
@@ -126,6 +129,8 @@ func init() {
 	register("memory", noArgs, toolMemory)
 	register("ports", noArgs, toolPorts)
 	register("sessions", noArgs, toolSessions)
+	register("boot", noArgs, toolBoot)
+	register("services_needing_restart", noArgs, toolServicesNeedingRestart)
 }
 
 // ToolNames lists the tools, sorted.

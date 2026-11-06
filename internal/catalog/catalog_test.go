@@ -16,20 +16,28 @@ func TestEmbeddedCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"package.install@1", "package.upgrade@1",
-		"service.reload@1", "service.restart@1", "service.start@1", "service.stop@1",
+		"package.hold@1", "package.install@1", "package.refresh@1", "package.unhold@1", "package.upgrade@1",
+		"packages.upgrade@1",
+		"service.disable@1", "service.enable@1", "service.reload@1", "service.restart@1", "service.start@1", "service.stop@1",
+		"system.reboot@1",
 	}
 	if got := c.Keys(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("keys = %v, want %v", got, want)
 	}
 	tiers := map[string]Tier{
-		"package.install@1": TierMedium, "package.upgrade@1": TierMedium,
+		"package.hold@1": TierLow, "package.install@1": TierMedium, "package.refresh@1": TierLow,
+		"package.unhold@1": TierLow, "package.upgrade@1": TierMedium, "packages.upgrade@1": TierMedium,
+		"service.disable@1": TierMedium, "service.enable@1": TierLow,
 		"service.reload@1": TierLow, "service.restart@1": TierLow,
 		"service.start@1": TierLow, "service.stop@1": TierMedium,
+		"system.reboot@1": TierHigh,
 	}
 	for _, d := range c.Definitions() {
 		if d.MinTier != tiers[d.Key()] {
 			t.Errorf("%s min_tier = %s, want %s", d.Key(), d.MinTier, tiers[d.Key()])
+		}
+		if d.Reboots != (d.Key() == "system.reboot@1") {
+			t.Errorf("%s reboots = %v", d.Key(), d.Reboots)
 		}
 	}
 }
@@ -197,7 +205,7 @@ func TestExport(t *testing.T) {
 	if err := json.Unmarshal(out, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 6 {
+	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 13 {
 		t.Fatalf("doc = %+v", doc)
 	}
 	wantKeys := []string{"description", "dry_run", "files_written", "health_check", "irreversible", "min_tier", "name", "params", "rollback", "version"}
@@ -207,6 +215,13 @@ func TestExport(t *testing.T) {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
+		if op["name"] == "system.reboot" {
+			// reboots is only exported when true.
+			if op["reboots"] != true {
+				t.Fatalf("system.reboot = %v", op)
+			}
+			keys = slicesDelete(keys, "reboots")
+		}
 		if !reflect.DeepEqual(keys, wantKeys) {
 			t.Fatalf("op keys = %v", keys)
 		}
@@ -248,5 +263,108 @@ func TestTier(t *testing.T) {
 	}
 	if _, err := ParseTier("none"); err == nil {
 		t.Error("ParseTier(none) succeeded")
+	}
+}
+
+func slicesDelete(list []string, item string) []string {
+	out := []string{}
+	for _, v := range list {
+		if v != item {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func TestExpandList(t *testing.T) {
+	c := MustEmbedded()
+	up, _ := c.Get("packages.upgrade", 1)
+	params := map[string]any{"packages": []any{
+		map[string]any{"name": "openssl", "version": "3.0.13-0ubuntu3.4"},
+		map[string]any{"name": "libssl3t64", "version": "3.0.13-0ubuntu3.4"},
+	}}
+	if err := up.Params.Validate(params); err != nil {
+		t.Fatal(err)
+	}
+	apt, err := up.Expand(PackageManagerApt, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(apt.Argv[len(apt.Argv)-3:], " "); got != "--only-upgrade openssl=3.0.13-0ubuntu3.4 libssl3t64=3.0.13-0ubuntu3.4" {
+		t.Fatalf("apt argv tail = %q", got)
+	}
+	dnf, err := up.Expand(PackageManagerDnf, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(dnf.Argv, " "); got != "/usr/bin/dnf -y upgrade openssl-3.0.13-0ubuntu3.4 libssl3t64-3.0.13-0ubuntu3.4" {
+		t.Fatalf("dnf argv = %q", got)
+	}
+	// The sudo rule is the single-package rule: no new sudo surface.
+	single, _ := c.Get("package.upgrade", 1)
+	if up.Sudo[PackageManagerApt] != single.Sudo[PackageManagerApt] || up.Sudo[PackageManagerDnf] != single.Sudo[PackageManagerDnf] {
+		t.Fatalf("sudo = %v, want %v", up.Sudo, single.Sudo)
+	}
+	list, err := up.HealthList(params)
+	if err != nil || len(list) != 2 || list[1] != (NameVersion{"libssl3t64", "3.0.13-0ubuntu3.4"}) {
+		t.Fatalf("health list = %v, %v", list, err)
+	}
+	if err := up.Params.Validate(map[string]any{"packages": []any{}}); err == nil {
+		t.Fatal("empty package list accepted")
+	}
+	bad := map[string]any{"packages": []any{map[string]any{"name": "-oAPT::x", "version": "1"}}}
+	if err := up.Params.Validate(bad); err == nil {
+		t.Fatal("option-like package name accepted")
+	}
+	if _, err := up.Expand(PackageManagerApt, map[string]any{"packages": []any{}}); err == nil {
+		t.Fatal("expanded an empty list")
+	}
+}
+
+func TestListArgumentRules(t *testing.T) {
+	list := `{"type":"object","additionalProperties":false,"required":["pkgs"],"properties":{"pkgs":{"type":"array","minItems":1,"maxItems":5,
+		"items":{"type":"object","additionalProperties":false,"required":["name","version"],"properties":{
+		"name":{"type":"string","pattern":"^[a-z]+$","maxLength":10},"version":{"type":"string","pattern":"^[0-9.]+$","maxLength":10}}}}}}`
+	def := func(params, argv, health string) string {
+		return `{"name":"test.op","version":1,"description":"d","min_tier":"low","params":` + params + `,"rollback":null,"irreversible":false,
+			"health_check":"h","files_written":[],"agent":{"privileged":false,"argv":{"apt":` + argv + `,"dnf":` + argv + `},"health":` + health + `}}`
+	}
+	okHealth := `{"check":"package_versions","args":{"packages":"{pkgs}"}}`
+	if _, err := Parse([]byte(def(list, `["/bin/x","{*pkgs:{name}={version}}"]`, okHealth))); err != nil {
+		t.Fatalf("valid list definition rejected: %v", err)
+	}
+	cases := map[string]string{
+		"not last":        def(list, `["/bin/x","{*pkgs:{name}}","y"]`, okHealth),
+		"unknown field":   def(list, `["/bin/x","{*pkgs:{nope}}"]`, okHealth),
+		"no placeholder":  def(list, `["/bin/x","{*pkgs:literal}"]`, okHealth),
+		"not a list":      def(list, `["/bin/x","{*name:{name}}"]`, okHealth),
+		"list as string":  def(list, `["/bin/x","{pkgs}"]`, okHealth),
+		"unbounded":       def(strings.Replace(list, `"maxItems":5,`, ``, 1), `["/bin/x","{*pkgs:{name}}"]`, okHealth),
+		"may be empty":    def(strings.Replace(list, `"minItems":1,`, `"minItems":0,`, 1), `["/bin/x","{*pkgs:{name}}"]`, okHealth),
+		"health not list": def(list, `["/bin/x","{*pkgs:{name}}"]`, `{"check":"package_versions","args":{"packages":"x{pkgs}"}}`),
+	}
+	for name, doc := range cases {
+		if _, err := Parse([]byte(doc)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	reboot := `{"name":"test.op","version":1,"description":"d","min_tier":"high","params":{"type":"object","additionalProperties":false,"properties":{}},
+		"rollback":"test.op","irreversible":false,"reboots":true,"health_check":"h","files_written":[],
+		"agent":{"privileged":false,"argv":{"apt":["/bin/x"],"dnf":["/bin/x"]},"health":{"check":"reboot_scheduled","args":{}}}}`
+	if _, err := Parse([]byte(reboot)); err == nil {
+		t.Error("a rebooting operation with a rollback was accepted")
+	}
+}
+
+func TestSudoersStateTools(t *testing.T) {
+	got := MustEmbedded().Sudoers("bifrost")
+	for _, want := range []string{
+		"bifrost ALL=(root) NOPASSWD: /usr/sbin/needrestart -b -r l\n",
+		"bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -q needs-restarting -s\n",
+		"bifrost ALL=(root) NOPASSWD: /usr/sbin/shutdown -r +1\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("sudoers lacks %q", want)
+		}
 	}
 }

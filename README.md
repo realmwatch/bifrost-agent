@@ -2,14 +2,14 @@
 
 The agent that runs on each server managed by a Bifrost hub. It dials out to the hub, answers read-only questions about the server, and runs only typed operations carrying an approval signature it can verify itself. A hub that is taken over can propose changes, but can't approve them.
 
-> **Status: v0.2.** Enrollment, heartbeats, polling, state tools, six operations, full approval verification and signed trusted-key updates. [`PROTOCOL.md`](PROTOCOL.md) is the contract with the hub and the approver app.
+> **Status: v0.3.** Enrollment, heartbeats, polling, state tools, thirteen operations (packages, services, holds, reboots), full approval verification and signed trusted-key updates. [`PROTOCOL.md`](PROTOCOL.md) is the contract with the hub and the approver app.
 
 - **Dials out** over HTTPS and polls for work (a WebSocket channel and mTLS can replace polling later without changing payloads). No port is opened on the server.
-- **Read-only state tools:** os, packages, pending updates, service status, journal lines (redacted), disk, memory, listening ports, sessions.
-- **Typed operations** run as argument lists, never through a shell, under the agent's own user with sudo rules limited to the operations it knows. Each parameter is checked against its schema and fills exactly one argument.
+- **Read-only state tools:** os, packages, pending updates, service status, journal lines (redacted), disk, memory, listening ports, sessions, boot (boot ID, pending and scheduled reboots), services needing a restart after upgrades.
+- **Typed operations** run as argument lists, never through a shell, under the agent's own user with sudo rules limited to the operations it knows. Each parameter is checked against its schema and fills exactly one argument (a package list fills one per package).
 - **Verifies approvals** itself: WebAuthn passkey signatures (ES256, EdDSA, RS256) over the exact envelope bytes, its own machine id, the approver's origin and rp id, user verification, the expiry and a single-use nonce. The risk tier comes from the compiled operation, never from the hub.
 - **Trusts a key set it can update only with its approvers' signatures:** root installs the first one (the anchor); later ones come from the hub and are accepted only when enough people the agent already trusts signed them with their passkeys. A newer anchor installed by hand always wins.
-- **Hard rules of its own:** a deny-rule hook and an auto-approval list compiled into the binary that no hub can change.
+- **Hard rules of its own:** deny rules and an auto-approval list compiled into the binary that no hub can change. It never stops or disables its own unit, and only reboots as the last step, a minute ahead, when its unit starts at boot.
 
 ## Commands
 

@@ -1,0 +1,52 @@
+{
+  "name": "service.disable",
+  "version": 1,
+  "description": "Stop one systemd service starting at boot. It doesn't stop it now.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "unit"
+    ],
+    "properties": {
+      "unit": {
+        "type": "string",
+        "description": "systemd service unit, ending in .service.",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9:_.@-]*\\.service$",
+        "minLength": 9,
+        "maxLength": 128
+      }
+    }
+  },
+  "rollback": "service.enable",
+  "irreversible": false,
+  "health_check": "The unit's UnitFileState is disabled.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/bin/systemctl",
+        "disable",
+        "{unit}"
+      ],
+      "dnf": [
+        "/usr/bin/systemctl",
+        "disable",
+        "{unit}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/bin/systemctl disable *",
+      "dnf": "/usr/bin/systemctl disable *"
+    },
+    "health": {
+      "check": "unit_file_state",
+      "args": {
+        "unit": "{unit}",
+        "state": "disabled"
+      }
+    }
+  }
+}

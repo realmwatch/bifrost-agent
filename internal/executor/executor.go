@@ -34,7 +34,7 @@ const (
 )
 
 // SudoArgv prefixes privileged commands.
-var SudoArgv = []string{"/usr/bin/sudo", "-n", "--"}
+var SudoArgv = catalog.SudoArgv
 
 // Executor runs verified envelopes.
 type Executor struct {
@@ -225,6 +225,16 @@ func (x *Executor) runStep(ctx context.Context, s *stream, phase string, i int, 
 	log.Info("step started", "phase", phase, "index", i, "op", def.Key(), "argv", argv, "simulate", x.Simulate)
 
 	start := x.Now()
+	var bootID string
+	if def.Reboots && !x.Simulate {
+		var reason string
+		if bootID, reason = x.beforeReboot(ctx); reason != "" {
+			s.write(phase, i, "stderr", []byte("bifrost-agent: not rebooting: "+reason+"\n"))
+			s.emit("step_finished", map[string]any{"phase": phase, "index": i, "exit_code": -1, "duration_ms": 0})
+			log.Warn("reboot refused", "reason", reason)
+			return false
+		}
+	}
 	var code int
 	if x.Simulate {
 		s.write(phase, i, "stdout", []byte("simulated"))
@@ -254,7 +264,12 @@ func (x *Executor) runStep(ctx context.Context, s *stream, phase string, i int, 
 	ok, detail := x.health(ctx, def, step)
 	// PROTOCOL.md's health event has no phase; the agent adds one so
 	// rollback health checks are not mistaken for operation ones.
-	s.emit("health", map[string]any{"phase": phase, "index": i, "ok": ok, "detail": detail})
+	ev := map[string]any{"phase": phase, "index": i, "ok": ok, "detail": detail}
+	if bootID != "" {
+		// The hub checks the host comes back with a different boot ID.
+		ev["boot_id"] = bootID
+	}
+	s.emit("health", ev)
 	if !ok {
 		log.Warn("health check failed", "phase", phase, "index", i, "op", def.Key(), "detail", detail)
 	}
@@ -270,12 +285,111 @@ func (x *Executor) health(ctx context.Context, def *catalog.Definition, step ver
 		return false, err.Error()
 	}
 	switch def.Health.Check {
+	case "exit_status":
+		return true, "exited 0"
 	case "package_version":
 		return x.packageVersion(ctx, args["name"], args["version"])
+	case "package_versions":
+		list, err := def.HealthList(step.Params)
+		if err != nil {
+			return false, err.Error()
+		}
+		return x.packageVersions(ctx, list)
+	case "package_held":
+		return x.packageHeld(ctx, args["name"], args["held"] == "true")
 	case "service_state":
 		return x.serviceState(ctx, args["unit"], args["state"])
+	case "unit_file_state":
+		return x.unitFileState(ctx, args["unit"], args["state"])
+	case "reboot_scheduled":
+		return x.rebootScheduled()
 	}
 	return false, fmt.Sprintf("unknown health check %q", def.Health.Check)
+}
+
+// beforeReboot checks the agent will come back after a reboot (its unit
+// starts at boot) and returns the current boot ID. A non-empty reason
+// refuses the reboot.
+func (x *Executor) beforeReboot(ctx context.Context) (bootID, reason string) {
+	st, err := x.State.ServiceStatus(ctx, state.AgentUnit)
+	if err != nil {
+		return "", "can't read whether " + state.AgentUnit + " starts at boot: " + err.Error()
+	}
+	if st.UnitFileState != "enabled" {
+		return "", fmt.Sprintf("%s is %q, not enabled, so the agent wouldn't start after the reboot", state.AgentUnit, st.UnitFileState)
+	}
+	bootID, err = x.State.BootID()
+	if err != nil {
+		return "", "can't read the boot ID: " + err.Error()
+	}
+	return bootID, ""
+}
+
+func (x *Executor) packageVersions(ctx context.Context, want []catalog.NameVersion) (bool, string) {
+	pkgs, err := x.State.Packages(ctx)
+	if err != nil {
+		return false, "reading installed packages: " + err.Error()
+	}
+	installed := map[string]string{}
+	for _, p := range pkgs {
+		installed[p.Name] = p.Version
+	}
+	var wrong []string
+	for _, w := range want {
+		got, ok := installed[w.Name]
+		switch {
+		case !ok:
+			wrong = append(wrong, w.Name+" is not installed")
+		case !VersionMatches(got, w.Version):
+			wrong = append(wrong, fmt.Sprintf("%s is at %s, want %s", w.Name, got, w.Version))
+		}
+	}
+	if len(wrong) > 0 {
+		return false, strings.Join(wrong, "; ")
+	}
+	return true, fmt.Sprintf("all %d packages are at the requested versions", len(want))
+}
+
+func (x *Executor) packageHeld(ctx context.Context, name string, want bool) (bool, string) {
+	held, err := x.State.HeldPackages(ctx)
+	if err != nil {
+		return false, "reading held packages: " + err.Error()
+	}
+	switch {
+	case held[name] && want:
+		return true, name + " is held"
+	case !held[name] && !want:
+		return true, name + " is not held"
+	case want:
+		return false, name + " is not held"
+	}
+	return false, name + " is still held"
+}
+
+func (x *Executor) unitFileState(ctx context.Context, unit, want string) (bool, string) {
+	st, err := x.State.ServiceStatus(ctx, unit)
+	if err != nil {
+		return false, err.Error()
+	}
+	detail := "UnitFileState=" + st.UnitFileState
+	if st.UnitFileState == want {
+		return true, detail
+	}
+	return false, detail + ", want " + want
+}
+
+func (x *Executor) rebootScheduled() (bool, string) {
+	sched, err := x.State.ScheduledShutdown()
+	if err != nil {
+		return false, "reading the scheduled shutdown: " + err.Error()
+	}
+	if sched == nil || sched.Mode != "reboot" {
+		return false, "no reboot is scheduled"
+	}
+	if sched.At == "" {
+		return true, "reboot scheduled"
+	}
+	return true, "reboot scheduled for " + sched.At
 }
 
 func (x *Executor) packageVersion(ctx context.Context, name, want string) (bool, string) {
