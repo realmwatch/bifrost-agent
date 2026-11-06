@@ -119,7 +119,7 @@ Read-only. Unknown tools or bad args return `ok: false`.
 | --- | --- | --- |
 | `os` | — | `/etc/os-release` fields, kernel, uptime, machine id, hostname |
 | `packages` | `names` (optional list) | `[{"name", "version", "arch"}]` |
-| `pending_updates` | — | `[{"name", "current", "candidate", "security": bool, "held": bool}]`; `held` is a package held at its version (`apt-mark hold`, dnf versionlock), which upgrades skip (agents before v0.3.0 leave it out) |
+| `pending_updates` | `refresh` (optional boolean: refresh the package lists first, through the same exact sudo rule as `package.refresh`; v0.3.0) | `[{"name", "current", "candidate", "security": bool, "held": bool}]`; `held` is a package held at its version (`apt-mark hold`, dnf versionlock), which upgrades skip (agents before v0.3.0 leave it out) |
 | `service_status` | `unit` | `{"unit", "active_state", "sub_state", "load_state", "unit_file_state", "since"}` |
 | `journal` | `unit`, `lines` (≤ 500, default 100) | `{"lines": ["..."]}` |
 | `disk` | — | `[{"mount", "fs", "size_bytes", "used_bytes", "avail_bytes"}]` |

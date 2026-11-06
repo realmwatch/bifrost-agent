@@ -160,9 +160,15 @@ func ParseRpmQuery(out string) []Package {
 	return pkgs
 }
 
-func toolPendingUpdates(ctx context.Context, e *Env, _ map[string]any) (any, error) {
+func toolPendingUpdates(ctx context.Context, e *Env, args map[string]any) (any, error) {
 	if err := e.requirePM(); err != nil {
 		return nil, err
+	}
+	if refresh, _ := args["refresh"].(bool); refresh {
+		// Refresh the package lists first, so candidates are current.
+		if _, err := e.runOK(ctx, e.privileged(catalog.PrivilegedReads["pending_updates"][e.PackageManager])...); err != nil {
+			return nil, fmt.Errorf("refreshing the package lists: %w", err)
+		}
 	}
 	held, err := e.HeldPackages(ctx)
 	if err != nil {

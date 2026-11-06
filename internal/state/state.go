@@ -119,7 +119,7 @@ func init() {
 	register("os", noArgs, toolOS)
 	register("packages", `{"type":"object","additionalProperties":false,"properties":{
 		"names":{"type":"array","items":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._+-]*$","maxLength":128}}}}`, toolPackages)
-	register("pending_updates", noArgs, toolPendingUpdates)
+	register("pending_updates", `{"type":"object","additionalProperties":false,"properties":{"refresh":{"type":"boolean"}}}`, toolPendingUpdates)
 	register("service_status", `{"type":"object","additionalProperties":false,"required":["unit"],"properties":{
 		"unit":{"type":"string","pattern":"`+unitPattern+`","maxLength":256}}}`, toolServiceStatus)
 	register("journal", `{"type":"object","additionalProperties":false,"required":["unit"],"properties":{

@@ -36,6 +36,11 @@ var SudoArgv = []string{"/usr/bin/sudo", "-n", "--"}
 // by tool and package manager. They take no arguments from the hub, so
 // their sudo rules are exact.
 var PrivilegedReads = map[string]map[string][]string{
+	// pending_updates with refresh: the same commands as package.refresh@1.
+	"pending_updates": {
+		PackageManagerApt: {"/usr/bin/apt-get", "-q", "update"},
+		PackageManagerDnf: {"/usr/bin/dnf", "-q", "makecache"},
+	},
 	"services_needing_restart": {
 		PackageManagerApt: {"/usr/sbin/needrestart", "-b", "-r", "l"},
 		PackageManagerDnf: {"/usr/bin/dnf", "-q", "needs-restarting", "-s"},

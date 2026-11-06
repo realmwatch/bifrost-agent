@@ -31,7 +31,7 @@ bifrost ALL=(root) NOPASSWD: /usr/sbin/shutdown -r +1
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-get -q -y -o Dpkg\:\:Options\:\:\=--force-confdef -o Dpkg\:\:Options\:\:\=--force-confold install --allow-downgrades *
 # package.upgrade@1, packages.upgrade@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-get -q -y -o Dpkg\:\:Options\:\:\=--force-confdef -o Dpkg\:\:Options\:\:\=--force-confold install --only-upgrade *
-# package.refresh@1
+# package.refresh@1, state tool pending_updates (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-get -q update
 # package.hold@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-mark hold *
@@ -41,7 +41,7 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/apt-mark unhold *
 bifrost ALL=(root) NOPASSWD: /usr/sbin/needrestart -b -r l
 
 # dnf (RHEL family)
-# package.refresh@1
+# package.refresh@1, state tool pending_updates (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -q makecache
 # state tool services_needing_restart (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -q needs-restarting -s
