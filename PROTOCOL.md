@@ -33,7 +33,7 @@ Enrolling never silently takes over a server:
 - A server that has an active agent is refused with `409 server_already_enrolled`, unless the key is a **re-enrollment key** for that server. The hub logs the refused attempt (`enroll_refused`, with the key, hostname and address) and notifies the organization's admins, at most once an hour per server.
 - A re-enrollment key is issued by an admin from the server's page in the hub (or `bifrost:enrollment-key {org} {name} --server=web-01`). It is single-use, expires after an hour (`BIFROST_AGENT_REENROLL_KEY_TTL`, minutes), and is refused (`403 invalid_enrollment_key`) for any other machine id. Enrolling with it revokes the server's previous agent, is logged as `replaced` with the revoked agent ids, and notifies the admins.
 
-Creating an enrollment key in the hub shows the commands that use it: one line that downloads `install.sh` from the agent's GitHub release (`BIFROST_AGENT_RELEASE`, default `v0.1.0`) and runs it with `--hub`, the organization's trusted keys (`--trusted-keys-b64`) and `--enroll`, which asks for the key; an SSH loop that pipes the key to `--enroll-stdin`; and cloud-init user data, the only one that contains the key. `install.sh` checks the release's signature and checksums before installing. A re-enrollment key comes with `bifrost-agent enroll --key-stdin --force` instead, since `install.sh` keeps an enrolled agent's identity.
+Creating an enrollment key in the hub shows the commands that use it: one line that downloads `install.sh` from the agent's GitHub release (`BIFROST_AGENT_RELEASE`, default `v0.3.0`) and runs it with `--hub`, the organization's trusted keys (`--trusted-keys-b64`) and `--enroll`, which asks for the key; an SSH loop that pipes the key to `--enroll-stdin`; and cloud-init user data, the only one that contains the key. `install.sh` checks the release's signature and checksums before installing. A re-enrollment key comes with `bifrost-agent enroll --key-stdin --force` instead, since `install.sh` keeps an enrolled agent's identity.
 
 ### `POST /heartbeat`
 
@@ -46,11 +46,15 @@ Creating an enrollment key in the hub shows the commands that use it: one line t
     "os": {"id": "ubuntu", "version_id": "24.04", "pretty_name": "..."},
     "kernel": "6.8.0-45-generic",
     "uptime_seconds": 12345,
-    "package_manager": "apt"
+    "package_manager": "apt",
+    "boot_id": "8a1c2f3e-...",
+    "reboot_required": "no"
   },
   "trusted_keys_serial": 3
 }
 ```
+
+`boot_id` changes on every boot; the hub uses it to check a reboot happened. `reboot_required` is `"yes"` or `"no"` on apt systems (`/run/reboot-required`) and left out elsewhere. Agents before v0.3.0 leave both out.
 
 `trusted_keys_serial` is the `serial` of the key set the agent trusts now (see [Trusted keys](#trusted-keys)), `0` for a file without one. Agents before v0.2.0 leave it out.
 

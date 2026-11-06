@@ -23,6 +23,11 @@ type Facts struct {
 	Kernel         string `json:"kernel"`
 	UptimeSeconds  int64  `json:"uptime_seconds"`
 	PackageManager string `json:"package_manager"`
+	// BootID changes on every boot: the hub checks a reboot with it.
+	BootID string `json:"boot_id,omitempty"`
+	// RebootRequired is set on apt systems, where it's a file check:
+	// "yes" or "no". dnf systems leave it out (the boot tool asks dnf).
+	RebootRequired string `json:"reboot_required,omitempty"`
 }
 
 // ParseOSRelease parses os-release(5) content.
@@ -109,6 +114,13 @@ func (e *Env) Facts() Facts {
 	f.OS, _ = e.OSInfo()
 	f.Kernel, _ = e.Kernel()
 	f.UptimeSeconds, _ = e.Uptime()
+	f.BootID, _ = e.BootID()
+	if e.PackageManager == catalog.PackageManagerApt {
+		f.RebootRequired = "no"
+		if _, err := os.Stat(e.Path("/run/reboot-required")); err == nil {
+			f.RebootRequired = "yes"
+		}
+	}
 	return f
 }
 

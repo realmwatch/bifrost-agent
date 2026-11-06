@@ -298,7 +298,8 @@ func TestNoPackageManager(t *testing.T) {
 func TestFactsAndDetect(t *testing.T) {
 	e := testEnv(t, "apt", &runner.Fake{})
 	f := e.Facts()
-	want := Facts{Hostname: "web-01", OS: OSInfo{"ubuntu", "24.04", "Ubuntu 24.04.1 LTS"}, Kernel: "6.8.0-45-generic", UptimeSeconds: 12345, PackageManager: "apt"}
+	want := Facts{Hostname: "web-01", OS: OSInfo{"ubuntu", "24.04", "Ubuntu 24.04.1 LTS"}, Kernel: "6.8.0-45-generic", UptimeSeconds: 12345, PackageManager: "apt",
+		BootID: "8a1c2f3e-0000-4000-8000-000000000001", RebootRequired: "yes"}
 	if f != want {
 		t.Fatalf("facts = %+v", f)
 	}
