@@ -170,8 +170,12 @@ func (v *Verifier) Verify(raw []byte, approvals []Approval) (*Result, error) {
 			if err := def.Params.Validate(s.Params); err != nil {
 				return nil, reject(CheckOperation, "bad params for %s[%d] %s: %v", group.name, i, s.Key(), err)
 			}
-			if def.Reboots && (group.name != "operations" || i != len(group.steps)-1) {
-				return nil, reject(CheckOperation, "%s reboots the host, so it must be the last operation and can't be a rollback step", s.Key())
+			if def.MustBeLast() && (group.name != "operations" || i != len(group.steps)-1) {
+				verb := "reboots the host"
+				if def.RestartsAgent {
+					verb = "restarts the agent"
+				}
+				return nil, reject(CheckOperation, "%s %s, so it must be the last operation and can't be a rollback step", s.Key(), verb)
 			}
 			if def.MinTier > tier {
 				tier = def.MinTier

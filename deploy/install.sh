@@ -16,6 +16,10 @@
 #   3. enrolls with the hub (unless this server is already enrolled), then
 #      enables and starts the service and checks it's running.
 # Re-running it is an upgrade: config and enrollment are kept.
+#
+# It also keeps a copy of itself, root-owned, at
+# /usr/local/lib/bifrost-agent/install.sh. The agent's agent.upgrade operation
+# runs that copy through one sudo rule, `--self-upgrade vX.Y.Z`: see below.
 set -eu
 umask 022
 export LC_ALL=C
@@ -89,6 +93,105 @@ verify_release() {
 	say "Sigstore signature verified"
 }
 
+# ── Upgrades from the hub ──
+# `--self-upgrade vX.Y.Z` runs as root from the agent, with only a version
+# from the hub. It takes no other arguments, downloads from the fixed release
+# URL and checks the signature as an install does, so it can't be pointed at
+# other files. It refuses a downgrade, stages the release in a directory only
+# root can read, and hands over to a transient systemd unit, because
+# restarting the agent would kill anything left in the agent's service.
+#
+# `--apply-staged` is that unit. If the new agent isn't running and accepted
+# by the hub soon after it starts, the old agent, unit and sudo rules go back.
+SELF=$LIB/install.sh
+STAGED=$LIB/staged
+ROLLBACK=$LIB/rollback
+HEARTBEAT=$STATE_DIR/heartbeat-ok
+UPGRADE_UNIT=bifrost-agent-upgrade.service
+HEARTBEAT_TRIES=90 # two seconds each; the agent reports as soon as it starts
+
+check_upgrade_target() {
+	case ${version#v} in '' | *[!0-9.]*) die "bad version $version" ;; esac
+	printf '%s\n' "$version" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+' || die "bad version $version"
+	current=$("$BIN" version) || die "can't read the installed agent's version"
+	[ "$current" != "${version#v}" ] || die "the agent is already at $version"
+	newest=$(printf '%s\n%s\n' "$current" "${version#v}" | sort -V | tail -n 1)
+	[ "$newest" = "${version#v}" ] || die "refusing to downgrade the agent from $current to $version"
+	if systemctl is-active --quiet "$UPGRADE_UNIT"; then
+		die "an agent upgrade is already running"
+	fi
+}
+
+# stage_upgrade: keep the verified release and start the unit that applies it.
+stage_upgrade() {
+	[ "$("$new_bin" version)" = "${version#v}" ] || die "the $version release reports a different version; not installing it"
+	"$new_bin" operations sudoers --user "$USER_NAME" >"$work/sudoers" || die "the new agent can't generate its sudo rules"
+	visudo -cqf "$work/sudoers" >/dev/null || die "the new agent's sudo rules don't parse; not installing them"
+	rm -rf "$STAGED"
+	install -d -m 0700 "$STAGED"
+	install -m 0755 "$new_bin" "$STAGED/bifrost-agent"
+	install -m 0644 "$work/bifrost-agent.service" "$STAGED/bifrost-agent.service"
+	install -m 0440 "$work/sudoers" "$STAGED/sudoers"
+	install -m 0755 "$work/install.sh" "$STAGED/install.sh"
+	systemd-run --quiet --collect --unit="$UPGRADE_UNIT" --description="Bifrost agent upgrade to $version" "$SELF" --apply-staged ||
+		die "couldn't start the upgrade"
+	say "$version is verified. The agent restarts into it once this step has reported."
+}
+
+put_in_place() { # put_in_place MODE SOURCE TARGET
+	install -m "$1" -o root -g root "$2" "$3.new" && mv "$3.new" "$3"
+}
+
+# switch_to_staged: install the staged agent; fail unless it starts and the
+# hub accepts its heartbeat.
+switch_to_staged() {
+	put_in_place 0755 "$STAGED/bifrost-agent" "$BIN" || return 1
+	put_in_place 0644 "$STAGED/bifrost-agent.service" "$UNIT" || return 1
+	put_in_place 0440 "$STAGED/sudoers" "$SUDOERS" || return 1
+	systemctl daemon-reload || return 1
+	# Stop first: only a heartbeat from the new agent may count. Stopping
+	# waits for the old agent to finish and report the running step.
+	systemctl stop bifrost-agent || return 1
+	touch "$STAGED/started"
+	sleep 2 # so a later heartbeat has a newer timestamp on any filesystem
+	systemctl start bifrost-agent || return 1
+	i=0
+	while [ "$i" -lt "$HEARTBEAT_TRIES" ]; do
+		if systemctl is-active --quiet bifrost-agent && [ "$HEARTBEAT" -nt "$STAGED/started" ]; then
+			return 0
+		fi
+		sleep 2
+		i=$((i + 1))
+	done
+	return 1
+}
+
+apply_staged() {
+	[ -x "$STAGED/bifrost-agent" ] || die "no upgrade is staged"
+	rm -rf "$ROLLBACK"
+	install -d -m 0700 "$ROLLBACK"
+	cp -p "$BIN" "$ROLLBACK/bifrost-agent"
+	cp -p "$UNIT" "$ROLLBACK/bifrost-agent.service"
+	cp -p "$SUDOERS" "$ROLLBACK/sudoers"
+	if switch_to_staged; then
+		# After everything else: this replaces the script that's running,
+		# so it must be a rename, and the last thing it does.
+		put_in_place 0755 "$STAGED/install.sh" "$SELF"
+		rm -rf "$STAGED"
+		say "Bifrost agent $("$BIN" version) is running and reporting to the hub"
+		return 0
+	fi
+	warn "the new agent didn't start and reach the hub; putting the old one back"
+	journalctl -u bifrost-agent -n 20 --no-pager >&2 2>/dev/null || true
+	put_in_place 0755 "$ROLLBACK/bifrost-agent" "$BIN"
+	put_in_place 0644 "$ROLLBACK/bifrost-agent.service" "$UNIT"
+	put_in_place 0440 "$ROLLBACK/sudoers" "$SUDOERS"
+	systemctl daemon-reload
+	systemctl restart bifrost-agent
+	rm -rf "$STAGED"
+	die "upgrade failed; rolled back to $("$BIN" version)"
+}
+
 usage() {
 	cat >&2 <<'EOF'
 usage: install.sh --hub https://bifrost.example.com [--enroll | --enroll-stdin]
@@ -113,6 +216,19 @@ EOF
 }
 
 hub='' enroll='' key='' keys_file='' keys_b64='' version=$AGENT_VERSION from_dir='' sigcheck=1
+mode=install
+case ${1:-} in
+--self-upgrade)
+	[ $# -eq 2 ] || die "--self-upgrade takes exactly one version"
+	mode=self-upgrade version=$2 RELEASES=https://github.com/$REPO/releases/download
+	set --
+	;;
+--apply-staged)
+	[ $# -eq 1 ] || die "--apply-staged takes no arguments"
+	mode=apply-staged
+	set --
+	;;
+esac
 while [ $# -gt 0 ]; do
 	case $1 in
 	--hub) hub=${2:-}; shift ;;
@@ -134,6 +250,11 @@ have systemctl || die "this installer needs systemd"
 have sha256sum || die "need sha256sum"
 [ -z "$keys_file" ] || [ -z "$keys_b64" ] || die "use --trusted-keys or --trusted-keys-b64, not both"
 [ -z "$keys_file" ] || [ -r "$keys_file" ] || die "cannot read $keys_file"
+if [ "$mode" = apply-staged ]; then
+	apply_staged
+	exit 0
+fi
+[ "$mode" != self-upgrade ] || check_upgrade_target
 
 case $(uname -m) in
 x86_64 | amd64) arch=amd64 ;;
@@ -202,6 +323,13 @@ say "Fetching Bifrost agent ${version}${from_dir:+ from $from_dir}"
 for f in SHA256SUMS "bifrost-agent-linux-$arch" bifrost-agent.service; do
 	fetch "$f" || die "download failed: $f"
 done
+# The copy of this script that upgrades run later. Releases always carry it;
+# a --from-dir install may not.
+keep_installer=0
+if [ -z "$from_dir" ] || [ -f "$from_dir/install.sh" ]; then
+	fetch install.sh || die "download failed: install.sh"
+	keep_installer=1
+fi
 if [ "$sigcheck" = 1 ]; then
 	fetch SHA256SUMS.sigstore.json || true
 	verify_release "$work"
@@ -209,7 +337,7 @@ else
 	warn "NOT checking the release signature (--skip-signature-check): checksums only catch corruption, not tampering"
 fi
 (cd "$work" && sha256sum -c --ignore-missing --strict SHA256SUMS >/dev/null) || die "checksum mismatch; not installing"
-for f in "bifrost-agent-linux-$arch" bifrost-agent.service; do
+for f in "bifrost-agent-linux-$arch" bifrost-agent.service $([ "$keep_installer" = 0 ] || echo install.sh); do
 	grep -q "  $f\$" "$work/SHA256SUMS" || die "$f isn't listed in SHA256SUMS; not installing"
 done
 say "Checksums verified"
@@ -217,6 +345,10 @@ say "Checksums verified"
 # Trusted keys: checked with the new binary's own strict parser before use.
 chmod 0755 "$work/bifrost-agent-linux-$arch"
 new_bin=$work/bifrost-agent-linux-$arch
+if [ "$mode" = self-upgrade ]; then
+	stage_upgrade
+	exit 0
+fi
 if [ -n "$keys_b64" ]; then
 	printf '%s' "$keys_b64" | base64 -d >"$work/trusted-keys.json" 2>/dev/null || die "--trusted-keys-b64 isn't valid base64"
 	keys_file=$work/trusted-keys.json
@@ -237,6 +369,10 @@ install -m 0644 "$work/bifrost-agent.service" "$UNIT"
 "$BIN" operations sudoers --user "$USER_NAME" >"$work/sudoers"
 visudo -cqf "$work/sudoers" >/dev/null || die "the generated sudoers rules don't parse; not installing them"
 install -m 0440 -o root -g root "$work/sudoers" "$SUDOERS"
+if [ "$keep_installer" = 1 ]; then
+	install -d -m 0755 "$LIB"
+	put_in_place 0755 "$work/install.sh" "$SELF"
+fi
 
 if [ -n "$keys_file" ]; then
 	install -m 0644 -o root -g root "$keys_file" "$KEYS"

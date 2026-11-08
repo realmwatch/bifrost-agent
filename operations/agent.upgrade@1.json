@@ -1,0 +1,38 @@
+{
+  "name": "agent.upgrade",
+  "version": 1,
+  "description": "Upgrade the Bifrost agent to a newer signed release. The server checks the release's Sigstore signature itself, refuses a downgrade, and puts the old agent back if the new one doesn't reach the hub. It must be the last operation.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["version"],
+    "properties": {
+      "version": {
+        "type": "string",
+        "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+        "maxLength": 32
+      }
+    }
+  },
+  "rollback": null,
+  "irreversible": false,
+  "restarts_agent": true,
+  "health_check": "The release is verified and the upgrade scheduled. The hub then checks that the agent reports the new version.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": ["/usr/local/lib/bifrost-agent/install.sh", "--self-upgrade", "{version}"],
+      "dnf": ["/usr/local/lib/bifrost-agent/install.sh", "--self-upgrade", "{version}"]
+    },
+    "sudo": {
+      "apt": "/usr/local/lib/bifrost-agent/install.sh --self-upgrade *",
+      "dnf": "/usr/local/lib/bifrost-agent/install.sh --self-upgrade *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

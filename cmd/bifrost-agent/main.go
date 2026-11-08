@@ -319,6 +319,7 @@ func cmdRun(args []string, stderr io.Writer) error {
 		Hub: hubclient.New(hubURL, st.Token, cfg.InsecureSkipTLSVerify), State: env, Catalog: cat,
 		Executor: x, Keys: keys, Log: log,
 		PollInterval: cfg.PollInterval(), HeartbeatInterval: cfg.HeartbeatInterval(),
+		HeartbeatOK: filepath.Join(cfg.StateDir, "heartbeat-ok"),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

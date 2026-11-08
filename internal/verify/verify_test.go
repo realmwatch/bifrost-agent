@@ -313,6 +313,15 @@ func TestVerify(t *testing.T) {
 		{name: "reboot last accepted", envelope: with(func(m map[string]any) {
 			m["operations"] = append(m["operations"].([]any), map[string]any{"op": "system.reboot", "version": 1, "params": map[string]any{}})
 		}), approvals: good},
+		{name: "agent upgrade last accepted", envelope: with(func(m map[string]any) {
+			m["operations"] = append(m["operations"].([]any), map[string]any{"op": "agent.upgrade", "version": 1, "params": map[string]any{"version": "v9.9.9"}})
+		}), approvals: good},
+		{name: "agent upgrade not last", envelope: with(func(m map[string]any) {
+			m["operations"] = append([]any{map[string]any{"op": "agent.upgrade", "version": 1, "params": map[string]any{"version": "v9.9.9"}}}, m["operations"].([]any)...)
+		}), approvals: good, wantCheck: 5, wantIn: "restarts the agent"},
+		{name: "agent upgrade to a URL", envelope: with(func(m map[string]any) {
+			m["operations"] = []any{map[string]any{"op": "agent.upgrade", "version": 1, "params": map[string]any{"version": "https://example.com/agent"}}}
+		}), approvals: good, wantCheck: 5, wantIn: "agent.upgrade"},
 		{name: "reboot not last", envelope: with(func(m map[string]any) {
 			m["operations"] = append([]any{map[string]any{"op": "system.reboot", "version": 1, "params": map[string]any{}}}, m["operations"].([]any)...)
 		}), approvals: good, wantCheck: 5, wantIn: "must be the last operation"},

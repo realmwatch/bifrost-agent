@@ -157,6 +157,8 @@ The agent repository's `operations/*.json` is the source of truth: one file per 
 
 `reboots` (optional, only present when true) marks an operation that restarts the host, such as `system.reboot`. It may only be the last operation of an envelope and never a rollback step; the agent rejects anything else. It schedules the reboot a minute ahead so the agent can report first, and refuses unless the agent's own unit starts at boot. The hub then checks that the host comes back with a new boot ID (the `boot` tool).
 
+`restarts_agent` (optional, only present when true) marks an operation that replaces the running agent, such as `agent.upgrade`. It has the same placement rules as `reboots`. The hub then checks that the agent reports the new version.
+
 The agent-only part of each definition adds `argv` per package manager (`apt`, `dnf`), with `{param}` placeholders that each fill exactly one argument and are never passed to a shell, plus `dry_run_argv` and `sudo`. A list argument, `{*param:template}`, fills one argument per item of a list param (for `packages.upgrade`, `{*packages:{name}={version}}`); it must be the last argument. Every parameter must match its schema (types, `pattern`, `enum`, `maxLength`) on both sides before use.
 
 Risk tiers, lowest first: `low`, `medium`, `high`, `critical`.

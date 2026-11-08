@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -50,6 +51,9 @@ type Daemon struct {
 
 	PollInterval      time.Duration
 	HeartbeatInterval time.Duration
+	// HeartbeatOK, if set, is a file touched after every heartbeat the hub
+	// accepts. An upgrade watches it to tell that the new agent works.
+	HeartbeatOK string
 	// MaxBackoff caps the wait after network errors; default 5 minutes.
 	MaxBackoff time.Duration
 	// QueryTimeout bounds each state tool; default 60s.
@@ -180,7 +184,23 @@ func (d *Daemon) heartbeat(ctx context.Context) {
 		d.revoke()
 	} else if err != nil && ctx.Err() == nil {
 		d.Log.Warn("heartbeat failed", "err", err)
+	} else if err == nil && d.HeartbeatOK != "" {
+		if err := touch(d.HeartbeatOK); err != nil {
+			d.Log.Warn("could not record the heartbeat", "path", d.HeartbeatOK, "err", err)
+		}
 	}
+}
+
+func touch(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	now := time.Now()
+	return os.Chtimes(path, now, now)
 }
 
 func (d *Daemon) poll(loopCtx, workCtx context.Context, wg *sync.WaitGroup) error {
