@@ -20,6 +20,7 @@
 # It also keeps a copy of itself, root-owned, at
 # /usr/local/lib/bifrost-agent/install.sh. The agent's agent.upgrade operation
 # runs that copy through one sudo rule, `--self-upgrade vX.Y.Z`: see below.
+# collector.upgrade uses it the same way, with `--upgrade-collector vX.Y.Z`.
 set -eu
 umask 022
 export LC_ALL=C
@@ -192,6 +193,34 @@ apply_staged() {
 	die "upgrade failed; rolled back to $("$BIN" version)"
 }
 
+# ── Collector upgrades ──
+# `--upgrade-collector vX.Y.Z` runs as root from the agent, with only a version
+# from the hub. Heimdall's collector has its own signed upgrade, but a sudo
+# rule for it could add --skip-signature-check, and it allows a downgrade when
+# given a version. So this takes one strictly checked version, refuses to go
+# backwards, and runs the collector only if nobody but root can have changed it.
+COLLECTOR=/usr/local/bin/heimdall-collect
+
+collector_version() {
+	sed -n 's/^VERSION=\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' "$COLLECTOR" | head -n 1
+}
+
+upgrade_collector() {
+	printf '%s\n' "$version" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+' || die "bad version $version"
+	[ -f "$COLLECTOR" ] && [ ! -L "$COLLECTOR" ] || die "no Heimdall collector at $COLLECTOR"
+	[ -n "$(find "$COLLECTOR" -maxdepth 0 -user root ! -perm /022)" ] ||
+		die "$COLLECTOR isn't owned and writable only by root; not running it as root"
+	current=$(collector_version)
+	[ -n "$current" ] || die "can't read the installed collector's version"
+	[ "$current" != "${version#v}" ] || die "the collector is already at $version"
+	newest=$(printf '%s\n%s\n' "$current" "${version#v}" | sort -V | tail -n 1)
+	[ "$newest" = "${version#v}" ] || die "refusing to downgrade the collector from $current to $version"
+	"$COLLECTOR" upgrade "$version" || die "the collector's upgrade to $version failed"
+	installed=$(collector_version)
+	[ "$installed" = "${version#v}" ] || die "after the upgrade the collector reports ${installed:-no version}, not $version"
+	say "Heimdall collector $installed is installed"
+}
+
 usage() {
 	cat >&2 <<'EOF'
 usage: install.sh --hub https://bifrost.example.com [--enroll | --enroll-stdin]
@@ -223,6 +252,11 @@ case ${1:-} in
 	mode=self-upgrade version=$2 RELEASES=https://github.com/$REPO/releases/download
 	set --
 	;;
+--upgrade-collector)
+	[ $# -eq 2 ] || die "--upgrade-collector takes exactly one version"
+	mode=upgrade-collector version=$2
+	set --
+	;;
 --apply-staged)
 	[ $# -eq 1 ] || die "--apply-staged takes no arguments"
 	mode=apply-staged
@@ -250,6 +284,10 @@ have systemctl || die "this installer needs systemd"
 have sha256sum || die "need sha256sum"
 [ -z "$keys_file" ] || [ -z "$keys_b64" ] || die "use --trusted-keys or --trusted-keys-b64, not both"
 [ -z "$keys_file" ] || [ -r "$keys_file" ] || die "cannot read $keys_file"
+if [ "$mode" = upgrade-collector ]; then
+	upgrade_collector
+	exit 0
+fi
 if [ "$mode" = apply-staged ]; then
 	apply_staged
 	exit 0

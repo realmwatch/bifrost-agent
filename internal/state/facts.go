@@ -28,6 +28,8 @@ type Facts struct {
 	// RebootRequired is set on apt systems, where it's a file check:
 	// "yes" or "no". dnf systems leave it out (the boot tool asks dnf).
 	RebootRequired string `json:"reboot_required,omitempty"`
+	// CollectorVersion is the Heimdall collector installed here, if any.
+	CollectorVersion string `json:"collector_version,omitempty"`
 }
 
 // ParseOSRelease parses os-release(5) content.
@@ -115,6 +117,7 @@ func (e *Env) Facts() Facts {
 	f.Kernel, _ = e.Kernel()
 	f.UptimeSeconds, _ = e.Uptime()
 	f.BootID, _ = e.BootID()
+	f.CollectorVersion = e.CollectorVersion()
 	if e.PackageManager == catalog.PackageManagerApt {
 		f.RebootRequired = "no"
 		if _, err := os.Stat(e.Path("/run/reboot-required")); err == nil {

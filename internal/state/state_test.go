@@ -298,6 +298,32 @@ func TestNoPackageManager(t *testing.T) {
 	}
 }
 
+func TestCollectorVersion(t *testing.T) {
+	e := testEnv(t, "apt", &runner.Fake{})
+	if got := e.CollectorVersion(); got != "" {
+		t.Fatalf("no collector: got %q", got)
+	}
+	path := filepath.Join(e.Root, "usr/local/bin/heimdall-collect")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for script, want := range map[string]string{
+		"#!/bin/sh\nset -eu\nVERSION=0.5.5\nmain\n": "0.5.5",
+		"#!/bin/sh\nVERSION=$(evil)\n":              "",
+		"#!/bin/sh\n# VERSION=1.2.3\n":              "",
+	} {
+		if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := e.CollectorVersion(); got != want {
+			t.Errorf("%q: got %q, want %q", script, got, want)
+		}
+		if got := e.Facts().CollectorVersion; got != want {
+			t.Errorf("%q: facts got %q, want %q", script, got, want)
+		}
+	}
+}
+
 func TestFactsAndDetect(t *testing.T) {
 	e := testEnv(t, "apt", &runner.Fake{})
 	f := e.Facts()
