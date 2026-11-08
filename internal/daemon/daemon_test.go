@@ -234,6 +234,16 @@ func TestHeartbeatSerialZeroWithoutKeys(t *testing.T) {
 	}
 }
 
+func TestAcceptedHeartbeatTouchesTheFile(t *testing.T) {
+	hub := &fakeHub{}
+	d := newDaemonWithAnchor(t, hub, []byte(`{"v":2}`))
+	d.HeartbeatOK = filepath.Join(t.TempDir(), "heartbeat-ok")
+	d.heartbeat(context.Background())
+	if _, err := os.Stat(d.HeartbeatOK); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRevokedStops(t *testing.T) {
 	hub := &fakeHub{unauth: true}
 	d := newDaemon(t, hub, testkit.NewApprover("user:alex"))

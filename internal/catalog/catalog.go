@@ -112,17 +112,18 @@ type agentPart struct {
 }
 
 type fileDef struct {
-	Name         string          `json:"name"`
-	Version      int             `json:"version"`
-	Description  string          `json:"description"`
-	MinTier      string          `json:"min_tier"`
-	Params       json.RawMessage `json:"params"`
-	Rollback     *string         `json:"rollback"`
-	Irreversible bool            `json:"irreversible"`
-	Reboots      bool            `json:"reboots"`
-	HealthCheck  string          `json:"health_check"`
-	FilesWritten []string        `json:"files_written"`
-	Agent        agentPart       `json:"agent"`
+	Name          string          `json:"name"`
+	Version       int             `json:"version"`
+	Description   string          `json:"description"`
+	MinTier       string          `json:"min_tier"`
+	Params        json.RawMessage `json:"params"`
+	Rollback      *string         `json:"rollback"`
+	Irreversible  bool            `json:"irreversible"`
+	Reboots       bool            `json:"reboots"`
+	RestartsAgent bool            `json:"restarts_agent"`
+	HealthCheck   string          `json:"health_check"`
+	FilesWritten  []string        `json:"files_written"`
+	Agent         agentPart       `json:"agent"`
 }
 
 // Definition is one checked operation definition.
@@ -137,9 +138,12 @@ type Definition struct {
 	Irreversible bool
 	// Reboots marks an operation that restarts the host: it may only be
 	// the last operation of an envelope and never a rollback step.
-	Reboots      bool
-	HealthCheck  string
-	FilesWritten []string
+	Reboots bool
+	// RestartsAgent marks an operation that replaces the running agent: it
+	// has the same placement rules as Reboots.
+	RestartsAgent bool
+	HealthCheck   string
+	FilesWritten  []string
 
 	Privileged bool
 	Argv       map[string][]string
@@ -148,6 +152,10 @@ type Definition struct {
 	Sudo       map[string]string
 	Health     HealthSpec
 }
+
+// MustBeLast reports whether the operation ends the agent's or the host's
+// run, so it may only be the last operation and never a rollback step.
+func (d *Definition) MustBeLast() bool { return d.Reboots || d.RestartsAgent }
 
 // Key returns name@version.
 func (d *Definition) Key() string { return Key(d.Name, d.Version) }
@@ -268,7 +276,7 @@ func parseDefinition(data []byte) (*Definition, error) {
 	}
 	d := &Definition{
 		Name: fd.Name, Version: fd.Version, Description: fd.Description, MinTier: tier,
-		ParamsRaw: compact.Bytes(), Params: ps, Irreversible: fd.Irreversible, Reboots: fd.Reboots,
+		ParamsRaw: compact.Bytes(), Params: ps, Irreversible: fd.Irreversible, Reboots: fd.Reboots, RestartsAgent: fd.RestartsAgent,
 		HealthCheck: fd.HealthCheck, FilesWritten: fd.FilesWritten,
 		Privileged: fd.Agent.Privileged, Argv: fd.Agent.Argv, DryRunArgv: fd.Agent.DryRunArgv,
 		Env: fd.Agent.Env, Sudo: fd.Agent.Sudo, Health: fd.Agent.Health,
@@ -283,6 +291,9 @@ func parseDefinition(data []byte) (*Definition, error) {
 		}
 		if d.Reboots {
 			return nil, fmt.Errorf("an operation that reboots cannot name a rollback")
+		}
+		if d.RestartsAgent {
+			return nil, fmt.Errorf("an operation that restarts the agent cannot name a rollback")
 		}
 	}
 

@@ -23,6 +23,8 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl restart *
 bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl start *
 # service.stop@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl stop *
+# agent.upgrade@1
+bifrost ALL=(root) NOPASSWD: /usr/local/lib/bifrost-agent/install.sh --self-upgrade *
 # system.reboot@1
 bifrost ALL=(root) NOPASSWD: /usr/sbin/shutdown -r +1
 

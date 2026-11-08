@@ -9,17 +9,18 @@ import (
 )
 
 type exportOp struct {
-	Name         string          `json:"name"`
-	Version      int             `json:"version"`
-	Description  string          `json:"description"`
-	MinTier      string          `json:"min_tier"`
-	Params       json.RawMessage `json:"params"`
-	DryRun       bool            `json:"dry_run"`
-	Rollback     *string         `json:"rollback"`
-	Irreversible bool            `json:"irreversible"`
-	Reboots      bool            `json:"reboots,omitempty"`
-	HealthCheck  string          `json:"health_check"`
-	FilesWritten []string        `json:"files_written"`
+	Name          string          `json:"name"`
+	Version       int             `json:"version"`
+	Description   string          `json:"description"`
+	MinTier       string          `json:"min_tier"`
+	Params        json.RawMessage `json:"params"`
+	DryRun        bool            `json:"dry_run"`
+	Rollback      *string         `json:"rollback"`
+	Irreversible  bool            `json:"irreversible"`
+	Reboots       bool            `json:"reboots,omitempty"`
+	RestartsAgent bool            `json:"restarts_agent,omitempty"`
+	HealthCheck   string          `json:"health_check"`
+	FilesWritten  []string        `json:"files_written"`
 }
 
 type exportDoc struct {
@@ -34,7 +35,7 @@ func (c *Catalog) Export(catalogVersion string) ([]byte, error) {
 		op := exportOp{
 			Name: d.Name, Version: d.Version, Description: d.Description,
 			MinTier: d.MinTier.String(), Params: d.ParamsRaw, DryRun: len(d.DryRunArgv) > 0,
-			Irreversible: d.Irreversible, Reboots: d.Reboots, HealthCheck: d.HealthCheck, FilesWritten: d.FilesWritten,
+			Irreversible: d.Irreversible, Reboots: d.Reboots, RestartsAgent: d.RestartsAgent, HealthCheck: d.HealthCheck, FilesWritten: d.FilesWritten,
 		}
 		if d.Rollback != "" {
 			rb := d.Rollback
