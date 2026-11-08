@@ -48,13 +48,14 @@ Creating an enrollment key in the hub shows the commands that use it: one line t
     "uptime_seconds": 12345,
     "package_manager": "apt",
     "boot_id": "8a1c2f3e-...",
-    "reboot_required": "no"
+    "reboot_required": "no",
+    "collector_version": "0.5.5"
   },
   "trusted_keys_serial": 3
 }
 ```
 
-`boot_id` changes on every boot; the hub uses it to check a reboot happened. `reboot_required` is `"yes"` or `"no"` on apt systems (`/run/reboot-required`) and left out elsewhere. Agents before v0.3.0 leave both out.
+`boot_id` changes on every boot; the hub uses it to check a reboot happened. `reboot_required` is `"yes"` or `"no"` on apt systems (`/run/reboot-required`) and left out elsewhere. Agents before v0.3.0 leave both out. `collector_version` is the Heimdall collector installed on the server, read from its script (v0.5.0); it's left out when there is none.
 
 `trusted_keys_serial` is the `serial` of the key set the agent trusts now (see [Trusted keys](#trusted-keys)), `0` for a file without one. Agents before v0.2.0 leave it out.
 
