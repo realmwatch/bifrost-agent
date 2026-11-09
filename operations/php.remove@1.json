@@ -1,0 +1,50 @@
+{
+  "name": "php.remove",
+  "version": 1,
+  "description": "Remove one PHP version from an apt host, only if nothing uses it. At execution time it refuses if the version's FPM service is active or enabled, a web server config references it, the php alternative points at it, a cron, supervisor or systemd file names it, or purging would remove any other package. It then backs up the config and exact package list under /var/backups/php-remove and purges the packages.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "version"
+    ],
+    "properties": {
+      "version": {
+        "type": "string",
+        "description": "PHP version, such as 8.2.",
+        "pattern": "^[0-9]+\\.[0-9]+$",
+        "maxLength": 16
+      }
+    }
+  },
+  "rollback": "php.restore",
+  "irreversible": false,
+  "health_check": "The helper confirms with dpkg that the packages are gone.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "remove",
+        "{version}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "remove",
+        "{version}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent php remove *",
+      "dnf": "/usr/local/bin/bifrost-agent php remove *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

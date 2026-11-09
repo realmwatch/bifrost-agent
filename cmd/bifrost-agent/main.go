@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/realmwatch/bifrost-agent/internal/catalog"
 	"github.com/realmwatch/bifrost-agent/internal/config"
@@ -25,6 +26,7 @@ import (
 	"github.com/realmwatch/bifrost-agent/internal/hubclient"
 	"github.com/realmwatch/bifrost-agent/internal/keystore"
 	"github.com/realmwatch/bifrost-agent/internal/nonce"
+	"github.com/realmwatch/bifrost-agent/internal/phpops"
 	"github.com/realmwatch/bifrost-agent/internal/runner"
 	"github.com/realmwatch/bifrost-agent/internal/state"
 	"github.com/realmwatch/bifrost-agent/internal/verify"
@@ -59,6 +61,9 @@ Commands:
   trusted-keys status [--config PATH]
                        Print the key set trusted now: the anchor plus the
                        signed updates stored since.
+  php remove VERSION   Remove one PHP version if nothing uses it (root, apt).
+  php restore VERSION [BACKUP]
+                       Reinstall a removed PHP version from its backup.
   version              Print the agent version.
 `
 
@@ -92,6 +97,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdVerify(rest, stdout, stderr)
 	case "trusted-keys":
 		err = cmdTrustedKeys(rest, stdout, stderr)
+	case "php":
+		err = cmdPHP(rest, stdout)
 	case "help", "-h", "--help":
 		fmt.Fprintf(stdout, usage, strings.Join(state.ToolNames(), ", "))
 		return ExitOK
@@ -116,6 +123,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "bifrost-agent:", err)
 		return ExitError
 	}
+}
+
+// cmdPHP runs the php.remove and php.restore operations through sudo.
+func cmdPHP(args []string, stdout io.Writer) error {
+	valid := len(args) >= 2 && ((args[0] == "remove" && len(args) == 2) || (args[0] == "restore" && len(args) <= 3))
+	if !valid {
+		return usageError{"usage: bifrost-agent php remove VERSION | php restore VERSION [BACKUP]"}
+	}
+	if os.Geteuid() != 0 {
+		return errors.New("php remove and restore must run as root")
+	}
+	e := &phpops.Env{Runner: runner.Exec{}, Now: time.Now, Out: stdout}
+	if args[0] == "remove" {
+		return e.Remove(context.Background(), args[1])
+	}
+	backup := ""
+	if len(args) == 3 {
+		backup = args[2]
+	}
+	return e.Restore(context.Background(), args[1], backup)
 }
 
 type usageError struct{ msg string }

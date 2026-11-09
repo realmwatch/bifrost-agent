@@ -1,0 +1,58 @@
+{
+  "name": "php.restore",
+  "version": 1,
+  "description": "Rollback of php.remove on an apt host: reinstall a backup's exact package versions and restore its config, leaving the FPM service stopped and disabled as it was. It uses the newest backup unless one is named, fails if a recorded version is no longer available, and changes nothing when the packages are all still installed.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "version"
+    ],
+    "properties": {
+      "version": {
+        "type": "string",
+        "description": "PHP version, such as 8.2.",
+        "pattern": "^[0-9]+\\.[0-9]+$",
+        "maxLength": 16
+      },
+      "backup": {
+        "type": "string",
+        "description": "Backup directory name; the newest when left out.",
+        "pattern": "^[0-9]{8}T[0-9]{6}Z$",
+        "maxLength": 16
+      }
+    }
+  },
+  "rollback": null,
+  "irreversible": false,
+  "health_check": "The helper confirms with dpkg that each package is at its recorded version.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "restore",
+        "{version}",
+        "{backup?}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "restore",
+        "{version}",
+        "{backup?}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent php restore *",
+      "dnf": "/usr/local/bin/bifrost-agent php restore *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

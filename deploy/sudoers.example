@@ -23,6 +23,10 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl restart *
 bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl start *
 # service.stop@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl stop *
+# php.remove@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php remove *
+# php.restore@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php restore *
 # agent.upgrade@1
 bifrost ALL=(root) NOPASSWD: /usr/local/lib/bifrost-agent/install.sh --self-upgrade *
 # collector.upgrade@1
