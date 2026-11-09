@@ -73,24 +73,58 @@ func (e *Env) readFile(p string) (string, error) {
 
 // run runs a read-only command with TZ=UTC so timestamps parse as UTC.
 func (e *Env) run(ctx context.Context, argv ...string) (stdout string, exitCode int, err error) {
+	stdout, _, exitCode, err = e.runCapture(ctx, argv...)
+	return stdout, exitCode, err
+}
+
+// runCapture is run that also returns stderr.
+func (e *Env) runCapture(ctx context.Context, argv ...string) (stdout, stderr string, exitCode int, err error) {
 	var out, errOut strings.Builder
 	code, err := e.Runner.Run(ctx, runner.Command{Argv: argv, Env: []string{"TZ=UTC"}, Stdout: &out, Stderr: &errOut})
 	if err != nil {
-		return "", code, fmt.Errorf("%s: %w", argv[0], err)
+		return "", "", code, fmt.Errorf("%s: %w", argv[0], err)
 	}
-	return out.String(), code, nil
+	return out.String(), errOut.String(), code, nil
 }
 
-// runOK is run that treats a non-zero exit as an error.
+// runOK is run that treats a non-zero exit as an error, and says why using
+// the end of the command's stderr.
 func (e *Env) runOK(ctx context.Context, argv ...string) (string, error) {
-	out, code, err := e.run(ctx, argv...)
+	out, errOut, code, err := e.runCapture(ctx, argv...)
 	if err != nil {
 		return "", err
 	}
 	if code != 0 {
+		if tail := stderrTail(errOut); tail != "" {
+			return "", fmt.Errorf("%s exited with status %d: %s", argv[0], code, tail)
+		}
 		return "", fmt.Errorf("%s exited with status %d", argv[0], code)
 	}
 	return out, nil
+}
+
+const (
+	stderrTailLines = 5
+	stderrTailBytes = 1000
+)
+
+// stderrTail returns the last non-empty lines of stderr, redacted and capped:
+// errors skip the redaction RunTool applies to results.
+func stderrTail(s string) string {
+	kept := []string{}
+	for _, line := range lines(s) {
+		if line = strings.TrimSpace(line); line != "" {
+			kept = append(kept, line)
+		}
+	}
+	if len(kept) > stderrTailLines {
+		kept = kept[len(kept)-stderrTailLines:]
+	}
+	tail := redact.String(strings.Join(kept, "\n"))
+	if len(tail) > stderrTailBytes {
+		tail = strings.ToValidUTF8(tail[len(tail)-stderrTailBytes:], "")
+	}
+	return tail
 }
 
 // Tool is one read-only state tool.
