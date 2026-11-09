@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/realmwatch/bifrost-agent/internal/redact"
 	"github.com/realmwatch/bifrost-agent/internal/runner"
@@ -392,5 +393,30 @@ func TestServicesNeedingRestart(t *testing.T) {
 	}
 	if got := ParseDnfVersionlock("Last metadata expiration check:\nnginx-1:1.20.1-14.el9.*\n!bash-0:5.1.8-9.el9.*\n"); !reflect.DeepEqual(got, map[string]bool{"nginx": true, "bash": true}) {
 		t.Fatalf("versionlock = %v", got)
+	}
+}
+
+func TestRunOKReportsTheEndOfStderr(t *testing.T) {
+	stderr := "line 1\nline 2\n\nW: line 3\nW: line 4\nE: line 5\nE: line 6\n"
+	e := testEnv(t, "apt", &runner.Fake{Default: &runner.Response{Stderr: stderr, ExitCode: 100}})
+	_, err := e.runOK(context.Background(), "apt-get", "update")
+	want := "apt-get exited with status 100: line 2\nW: line 3\nW: line 4\nE: line 5\nE: line 6"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+}
+
+func TestRunOKWithoutStderr(t *testing.T) {
+	e := testEnv(t, "apt", &runner.Fake{Default: &runner.Response{ExitCode: 3}})
+	_, err := e.runOK(context.Background(), "apt-get", "update")
+	if err == nil || err.Error() != "apt-get exited with status 3" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestStderrTailIsCappedAndValidUTF8(t *testing.T) {
+	tail := stderrTail(strings.Repeat("é", 2000))
+	if len(tail) > stderrTailBytes || !utf8.ValidString(tail) {
+		t.Fatalf("len = %d, valid = %v", len(tail), utf8.ValidString(tail))
 	}
 }
