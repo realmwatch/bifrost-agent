@@ -173,9 +173,12 @@ var (
 	placeholderRe = regexp.MustCompile(`\{([a-z_][a-z0-9_]*)\}`)
 	// repeatRe matches a list argument, "{*param:template}": one argument per
 	// item of the list param, each filled from that item's fields.
-	repeatRe  = regexp.MustCompile(`^\{\*([a-z_][a-z0-9_]*):(.+)\}$`)
-	fileRe    = regexp.MustCompile(`^(.+)@([0-9]+)\.json$`)
-	envNameRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	repeatRe = regexp.MustCompile(`^\{\*([a-z_][a-z0-9_]*):(.+)\}$`)
+	// optionalRe matches an optional last argument, "{param?}": left out
+	// when the param is absent.
+	optionalRe = regexp.MustCompile(`^\{([a-z_][a-z0-9_]*)\?\}$`)
+	fileRe     = regexp.MustCompile(`^(.+)@([0-9]+)\.json$`)
+	envNameRe  = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 )
 
 // Embedded loads the definitions compiled into this binary.
@@ -457,6 +460,16 @@ func checkTemplate(argv []string, ps *schema.Schema) error {
 			}
 			continue
 		}
+		if m := optionalRe.FindStringSubmatch(el); m != nil {
+			if i != len(argv)-1 {
+				return fmt.Errorf("optional argument {%s?} must be the last argument", m[1])
+			}
+			p, ok := ps.Properties[m[1]]
+			if !ok || p.Type != "string" || isRequired(ps, m[1]) {
+				return fmt.Errorf("optional argument {%s?} must name a declared, optional string param", m[1])
+			}
+			continue
+		}
 		if err := checkElement(el, ps); err != nil {
 			return err
 		}
@@ -486,14 +499,17 @@ func checkElement(el string, ps *schema.Schema) error {
 
 // SudoRule derives the sudo command pattern for an argument list: every
 // argument that holds a placeholder, including a list argument, becomes a
-// "*".
+// "*". An optional last argument adds nothing: it needs a "*" before it.
 func SudoRule(argv []string) string {
-	out := make([]string, len(argv))
-	for i, el := range argv {
-		if placeholderRe.MatchString(el) {
-			out[i] = "*"
-		} else {
-			out[i] = el
+	out := make([]string, 0, len(argv))
+	for _, el := range argv {
+		switch {
+		case optionalRe.MatchString(el):
+			// A sudoers "*" before it already matches any further arguments.
+		case placeholderRe.MatchString(el):
+			out = append(out, "*")
+		default:
+			out = append(out, el)
 		}
 	}
 	return strings.Join(out, " ")
@@ -675,6 +691,12 @@ func fill(tmpl []string, params map[string]any) ([]string, error) {
 				out = append(out, s)
 			}
 			continue
+		}
+		if m := optionalRe.FindStringSubmatch(el); m != nil {
+			if _, ok := params[m[1]]; !ok {
+				continue
+			}
+			el = "{" + m[1] + "}"
 		}
 		s, err := fillOne(el, params)
 		if err != nil {

@@ -20,6 +20,7 @@ func TestEmbeddedCatalog(t *testing.T) {
 		"collector.upgrade@1",
 		"package.hold@1", "package.install@1", "package.refresh@1", "package.unhold@1", "package.upgrade@1",
 		"packages.upgrade@1",
+		"php.remove@1", "php.restore@1",
 		"service.disable@1", "service.enable@1", "service.reload@1", "service.restart@1", "service.start@1", "service.stop@1",
 		"system.reboot@1",
 	}
@@ -33,6 +34,7 @@ func TestEmbeddedCatalog(t *testing.T) {
 		"service.reload@1": TierLow, "service.restart@1": TierLow,
 		"service.start@1": TierLow, "service.stop@1": TierMedium,
 		"system.reboot@1": TierHigh, "agent.upgrade@1": TierHigh, "collector.upgrade@1": TierHigh,
+		"php.remove@1": TierHigh, "php.restore@1": TierHigh,
 	}
 	for _, d := range c.Definitions() {
 		if d.MinTier != tiers[d.Key()] {
@@ -207,7 +209,7 @@ func TestExport(t *testing.T) {
 	if err := json.Unmarshal(out, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 15 {
+	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 17 {
 		t.Fatalf("doc = %+v", doc)
 	}
 	wantKeys := []string{"description", "dry_run", "files_written", "health_check", "irreversible", "min_tier", "name", "params", "rollback", "version"}
@@ -374,5 +376,27 @@ func TestSudoersStateTools(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("sudoers lacks %q", want)
 		}
+	}
+}
+
+func TestOptionalArgument(t *testing.T) {
+	cat, err := Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, ok := cat.Get("php.restore", 1)
+	if !ok {
+		t.Fatal("php.restore@1 missing")
+	}
+	got, err := d.Expand(PackageManagerApt, map[string]any{"version": "8.2"})
+	if err != nil || strings.Join(got.Argv, " ") != "/usr/local/bin/bifrost-agent php restore 8.2" {
+		t.Fatalf("argv = %v, err = %v", got, err)
+	}
+	got, err = d.Expand(PackageManagerApt, map[string]any{"version": "8.2", "backup": "20261109T120000Z"})
+	if err != nil || strings.Join(got.Argv, " ") != "/usr/local/bin/bifrost-agent php restore 8.2 20261109T120000Z" {
+		t.Fatalf("argv = %v, err = %v", got, err)
+	}
+	if rule := SudoRule(d.Argv[PackageManagerApt]); rule != "/usr/local/bin/bifrost-agent php restore *" {
+		t.Fatalf("rule = %q", rule)
 	}
 }
