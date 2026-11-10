@@ -55,7 +55,7 @@ Creating an enrollment key in the hub shows the commands that use it: one line t
 }
 ```
 
-`boot_id` changes on every boot; the hub uses it to check a reboot happened. `reboot_required` is `"yes"` or `"no"` on apt systems (`/run/reboot-required`) and left out elsewhere. Agents before v0.3.0 leave both out. `collector_version` is the Heimdall collector installed on the server, read from its script (v0.5.0); it's left out when there is none.
+`boot_id` changes on every boot; the hub uses it to check a reboot happened. `reboot_required` is `"yes"` or `"no"` on apt systems (`/run/reboot-required`) and left out elsewhere. Agents before v0.3.0 leave both out. `collector_version` is the Heimdall collector installed on the server (agent v0.5.0), left out when there is none.
 
 `trusted_keys_serial` is the `serial` of the key set the agent trusts now (see [Trusted keys](#trusted-keys)), `0` for a file without one. Agents before v0.2.0 leave it out.
 
@@ -209,6 +209,35 @@ The approver app calls `navigator.credentials.get` with `challenge = hash` and `
 2. `authenticator_data[0:32] == SHA-256(rp_id)`, and its flags have user presence (`0x01`) and user verification (`0x04`).
 3. `signature` verifies over `authenticator_data || SHA-256(client_data_json)` with the key's algorithm: ES256 (COSE `-7`, ASN.1 ECDSA P-256 with SHA-256), EdDSA (`-8`, Ed25519) or RS256 (`-257`, PKCS#1 v1.5 with SHA-256).
 
+### Batch approvals
+
+One passkey assertion can approve several proposals at once, for patching many servers. It signs a **batch**, a short document listing the envelopes it covers, and each agent checks that its own envelope is on the list. Every proposal keeps its own envelope, nonce, expiry and execution, so one host failing or rolling back doesn't touch the others.
+
+```json
+{
+  "v": 1,
+  "kind": "bifrost.batch",
+  "organization_id": "01J...",
+  "envelopes": ["<lowercase hex SHA-256 of an envelope>", "..."]
+}
+```
+
+The hub encodes it as it encodes envelopes and stores the exact bytes. `envelopes` holds 1 to 100 distinct hashes. The approver app calls `navigator.credentials.get` with `challenge = SHA-256(batch bytes)`, and the approval item carries the batch with it:
+
+```json
+{"kind": "passkey_batch", "key_id": "<b64u credential id>", "authenticator_data": "<b64u>", "client_data_json": "<b64u>", "signature": "<b64u>", "batch": "<b64u batch bytes>"}
+```
+
+A `passkey_batch` approval is valid for an envelope when:
+
+1. The batch parses as strictly as an envelope (no duplicate keys at any depth, no unknown fields), with `v == 1`, `kind == "bifrost.batch"`, and 1 to 100 distinct entries in `envelopes`, each 64 lowercase hex characters.
+2. Its `organization_id` equals the envelope's.
+3. The envelope's hash, as lowercase hex, is in `envelopes`.
+4. The assertion is a valid passkey signature, as above, with `SHA-256(batch bytes)` as the challenge.
+5. Every operation in the envelope is in the agent's compiled batch list, `package.upgrade@1` and `packages.upgrade@1`, and every rollback step is `package.install@1`. A batch approves updates and nothing else, whatever the hub puts in it.
+
+A valid batch approval counts as a passkey approval from that key's owner. Agents before v0.7.0 don't know the kind and ignore it, so the hub only offers batches when every server's agent is at v0.7.0 or later.
+
 ## Trusted keys
 
 The agent trusts a **key set**: the passkeys (and policy keys) whose approvals it accepts, plus how many people must sign a change to the set itself. A key set is a document with exact bytes, like an envelope:
@@ -269,13 +298,14 @@ In order; the first failure is a `rejected` event and nothing runs.
 7. Approvals satisfy the agent's own rules, with the tier taken from the agent's compiled `min_tier` of each operation and rollback step (never the envelope's `risk_tier`):
    - at least one valid passkey approval, from a key in the current key set;
    - `critical`: valid passkey approvals from two different `owner`s;
-   - a policy approval alone is enough only if every operation and rollback step is in the agent's compiled auto-approval list (v0.1: `service.restart@1`).
+   - a policy approval alone is enough only if every operation and rollback step is in the agent's compiled auto-approval list (v0.1: `service.restart@1`);
+   - a `passkey_batch` approval counts as a passkey approval only when it passes the [batch checks](#batch-approvals), which include the compiled batch list.
 
 Then it runs the operations in order. If one fails or its health check fails, it runs the rollback steps (if any) and reports `rolled_back`, otherwise `failed`.
 
 ## Approver app ↔ hub
 
-The approver app is static and has no session with the hub. The hub gives it temporary signed URLs, opened as `{approver}/#register=<url-encoded signed URL>`, `{approver}/#approve=<url-encoded signed URL>`, `{approver}/#keyset=<url-encoded signed URL>` or `{approver}/#notify=<url-encoded signed URL>`. The hub allows CORS from the approver origin on `/api/approver/v1/*`.
+The approver app is static and has no session with the hub. The hub gives it temporary signed URLs, opened as `{approver}/#register=<url-encoded signed URL>`, `{approver}/#approve=<url-encoded signed URL>`, `{approver}/#keyset=<url-encoded signed URL>`, `{approver}/#batch=<url-encoded signed URL>` or `{approver}/#notify=<url-encoded signed URL>`. The hub allows CORS from the approver origin on `/api/approver/v1/*`.
 
 ### Registering a passkey
 
@@ -324,6 +354,25 @@ The app decodes the envelope bytes, renders the hosts, operations, parameters, r
 
 `client` is the MCP client's name for a proposal made through MCP, otherwise `null`. `agent_evidence` is `null` unless the proposal came through MCP; then it holds the agent's evidence as data, and the app shows it under its own fixed warning that it is an AI agent's claim, unverified, and may have been steered by text the agent read. The hub sends no warning text: everything in `hub_context` is unsigned.
 
+### Approving a batch
+
+`{approver}/#batch=<url-encoded signed URL>`. `GET` returns:
+
+```json
+{
+  "batch_id": "01J...",
+  "batch": "<b64u batch bytes>",
+  "proposals": [
+    {"proposal_id": "01J...", "envelope": "<b64u envelope bytes>", "hub_context": {"intent": "...", "source": "heimdall", "client": null, "agent_evidence": null, "reviews": []}}
+  ],
+  "rp_id": "approve.example.com",
+  "allow_credentials": ["<b64u>"],
+  "submit_url": "<signed URL>"
+}
+```
+
+The app parses the batch and every envelope from their own bytes, hashes each envelope, and refuses the batch unless the set of hashes it computed is exactly the batch's `envelopes`: same count, nothing missing, nothing extra. Every envelope's `organization_id` must equal the batch's. It then shows the batch's size and, for each proposal, its hosts, operations, parameters, rollback and expiry from the envelope bytes, with `hub_context` second and labelled as the hub's, as for one proposal. It hashes the batch bytes, calls `navigator.credentials.get` with that hash as the challenge, and `POST submit_url` with `{"key_id", "authenticator_data", "client_data_json", "signature"}`. The hub verifies the signature against the batch, then records a `passkey_batch` approval on every proposal in it that is still awaiting approval.
+
 ### Approving a key set
 
 `{approver}/#keyset=<url-encoded signed URL>`. `GET` returns:
@@ -368,8 +417,8 @@ Response `201`: `{"device_id": "01J..."}`.
 Each push is encrypted to the device (RFC 8291, `aes128gcm`) and signed by the hub's VAPID key (RFC 8292). The decrypted payload:
 
 ```json
-{"v": 1, "title": "Approval needed", "body": "Restart nginx on web-01 (risk: low)", "url": "/#approve=<url-encoded signed URL>", "tag": "proposal:01J..."}
+{"v": 1, "title": "Acme Bifrost: Approval needed", "body": "Restart nginx on web-01 (risk: low)", "url": "/#approve=<url-encoded signed URL>", "tag": "proposal:01J..."}
 ```
 
-`url` is a path on the approver's own origin: an `#approve=` or `#keyset=` link whose signed URL lasts until the proposal expires, at most 24 hours. The service worker shows the notification and, on a tap, opens or focuses the app at that path; it ignores a `url` that isn't on its own origin. A notification only says that something is waiting: what gets signed is still shown from the signed bytes, as always.
+`url` is a path on the approver's own origin: an `#approve=` or `#keyset=` link whose signed URL lasts until the proposal expires, at most 24 hours. The service worker shows the notification and, on a tap, opens or focuses the app at that path; it ignores a `url` that isn't on its own origin. The title names the organization, so someone who approves for several can tell them apart. A notification only says that something is waiting: what gets signed is still shown from the signed bytes, as always.
 
