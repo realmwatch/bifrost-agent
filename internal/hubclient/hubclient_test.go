@@ -21,7 +21,7 @@ func TestClient(t *testing.T) {
 			w.WriteHeader(http.StatusCreated)
 			_, _ = io.WriteString(w, `{"agent_id":"01JAGENT","server_id":"01JSERVER","token":"bfa_secret"}`)
 		case "/api/agent/v1/work":
-			_, _ = io.WriteString(w, `{"executions":[{"id":"e1","envelope":"e30","approvals":[{"kind":"policy","key_id":"p","signature":"x"}]}],"queries":[{"id":"q1","tool":"journal","args":{"unit":"nginx.service","lines":20}}],"keysets":[{"keyset":"e30","approvals":[{"kind":"passkey","key_id":"k","authenticator_data":"a","client_data_json":"c","signature":"s"}]}]}`)
+			_, _ = io.WriteString(w, `{"executions":[{"id":"e1","envelope":"e30","approvals":[{"kind":"policy","key_id":"p","signature":"x"},{"kind":"passkey_batch","key_id":"k","authenticator_data":"a","client_data_json":"c","signature":"s","batch":"b"}]}],"queries":[{"id":"q1","tool":"journal","args":{"unit":"nginx.service","lines":20}}],"keysets":[{"keyset":"e30","approvals":[{"kind":"passkey","key_id":"k","authenticator_data":"a","client_data_json":"c","signature":"s"}]}]}`)
 		case "/api/agent/v1/heartbeat", "/api/agent/v1/executions/e%2F1/events", "/api/agent/v1/queries/q1/result":
 			_, _ = io.WriteString(w, `{"ok":true}`)
 		default:
@@ -49,7 +49,7 @@ func TestClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(w.Executions) != 1 || w.Executions[0].Approvals[0].Kind != "policy" || w.Queries[0].Args["lines"] != json.Number("20") ||
+	if len(w.Executions) != 1 || w.Executions[0].Approvals[0].Kind != "policy" || w.Executions[0].Approvals[1].Batch != "b" || w.Queries[0].Args["lines"] != json.Number("20") ||
 		len(w.Keysets) != 1 || w.Keysets[0].KeySet != "e30" || w.Keysets[0].Approvals[0].KeyID != "k" {
 		t.Fatalf("work = %+v", w)
 	}

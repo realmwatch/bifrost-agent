@@ -84,6 +84,9 @@ type Verifier struct {
 	DenyRules      []DenyRule
 	// AutoApprove holds name@version keys; nil means CompiledAutoApproval.
 	AutoApprove []string
+	// BatchApprove is what a passkey_batch approval may approve; nil means
+	// CompiledBatchApproval.
+	BatchApprove *BatchList
 }
 
 // Result describes an envelope that passed every check.
@@ -198,6 +201,10 @@ func (v *Verifier) Verify(raw []byte, approvals []Approval) (*Result, error) {
 	if v.Keys == nil {
 		return nil, reject(CheckApproval, "no trusted keys")
 	}
+	batchList := CompiledBatchApproval
+	if v.BatchApprove != nil {
+		batchList = *v.BatchApprove
+	}
 	owners := map[string]bool{}
 	policyOK := false
 	for i, a := range approvals {
@@ -208,6 +215,13 @@ func (v *Verifier) Verify(raw []byte, approvals []Approval) (*Result, error) {
 			if !ok {
 				err = errors.New("untrusted passkey")
 			} else if err = VerifyPasskey(k, a, env.Hash); err == nil {
+				owners[k.Owner] = true
+			}
+		case "passkey_batch":
+			k, ok := v.Keys.Passkey(a.KeyID)
+			if !ok {
+				err = errors.New("untrusted passkey")
+			} else if err = VerifyBatch(k, a, env, batchList); err == nil {
 				owners[k.Owner] = true
 			}
 		case "policy":

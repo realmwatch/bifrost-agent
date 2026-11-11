@@ -20,6 +20,8 @@ type Approval struct {
 	AuthenticatorData string `json:"authenticator_data,omitempty"`
 	ClientDataJSON    string `json:"client_data_json,omitempty"`
 	Signature         string `json:"signature"`
+	// Batch is the b64u batch bytes of a passkey_batch approval.
+	Batch string `json:"batch,omitempty"`
 }
 
 // Authenticator data flags.
@@ -35,8 +37,8 @@ type clientData struct {
 	CrossOrigin bool   `json:"crossOrigin"`
 }
 
-// VerifyPasskey checks one WebAuthn assertion over the envelope hash
-// against a trusted key.
+// VerifyPasskey checks one WebAuthn assertion over hash (of an envelope, a
+// key set or a batch) against a trusted key.
 func VerifyPasskey(k *TrustedKey, a Approval, hash [32]byte) error {
 	cdj, err := DecodeB64U(a.ClientDataJSON)
 	if err != nil {
@@ -59,7 +61,7 @@ func VerifyPasskey(k *TrustedKey, a Approval, hash [32]byte) error {
 		return fmt.Errorf("client data type is %q, want webauthn.get", cd.Type)
 	}
 	if subtle.ConstantTimeCompare([]byte(cd.Challenge), []byte(B64U(hash[:]))) != 1 {
-		return errors.New("challenge does not match the envelope hash")
+		return errors.New("challenge does not match the signed hash")
 	}
 	if cd.Origin != k.Origin {
 		return fmt.Errorf("origin %q is not the key's origin", cd.Origin)
