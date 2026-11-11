@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -46,6 +47,11 @@ func (Exec) Run(ctx context.Context, c Command) (int, error) {
 	cmd.Env = append(append([]string{}, BaseEnv...), c.Env...)
 	cmd.Stdout = c.Stdout
 	cmd.Stderr = c.Stderr
+	// On timeout, ask the program to stop first. sudo can't pass SIGKILL on,
+	// so killing it outright would leave the command it started running
+	// (and holding locks, such as apt's); SIGTERM it relays. SIGKILL
+	// follows if the program is still there after WaitDelay.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = 10 * time.Second
 	err := cmd.Run()
 	if err == nil {

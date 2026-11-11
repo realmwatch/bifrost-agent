@@ -120,7 +120,7 @@ Read-only. Unknown tools or bad args return `ok: false`.
 | --- | --- | --- |
 | `os` | — | `/etc/os-release` fields, kernel, uptime, machine id, hostname |
 | `packages` | `names` (optional list) | `[{"name", "version", "arch"}]` |
-| `pending_updates` | `refresh` (optional boolean: refresh the package lists first, through the same exact sudo rule as `package.refresh`; v0.3.0) | `[{"name", "current", "candidate", "security": bool, "held": bool}]`; `held` is a package held at its version (`apt-mark hold`, dnf versionlock), which upgrades skip (agents before v0.3.0 leave it out) |
+| `pending_updates` | `refresh` (optional boolean: refresh the package lists first, through the same exact sudo rule as `package.refresh`; v0.3.0); `fallback` (optional boolean, v0.6.1: see below) | `[{"name", "current", "candidate", "security": bool, "held": bool}]`; `held` is a package held at its version (`apt-mark hold`, dnf versionlock), which upgrades skip (agents before v0.3.0 leave it out). With `fallback`, `{"updates": [...], "refresh": {...}}` instead |
 | `service_status` | `unit` | `{"unit", "active_state", "sub_state", "load_state", "unit_file_state", "since"}` |
 | `journal` | `unit`, `lines` (≤ 500, default 100) | `{"lines": ["..."]}` |
 | `disk` | — | `[{"mount", "fs", "size_bytes", "used_bytes", "avail_bytes"}]` |
@@ -129,6 +129,10 @@ Read-only. Unknown tools or bad args return `ok: false`.
 | `sessions` | — | `[{"user", "tty", "from", "since"}]` |
 | `boot` | — | `{"boot_id", "uptime_seconds", "kernel", "reboot_required": bool or null, "reboot_required_by": ["package"], "scheduled_shutdown": {"mode", "at"} or null}`; `reboot_required` is null where the system can't tell (v0.3.0) |
 | `services_needing_restart` | — | `{"services": ["nginx.service"]}`: services still running old copies of upgraded libraries, from `needrestart` (apt) or `dnf needs-restarting -s`, run through an exact sudo rule (v0.3.0) |
+
+**`pending_updates` with `fallback` (v0.6.1).** A failed refresh doesn't fail the query: the agent lists the updates from the package lists the server already has and says so, as `{"updates": [<as above>], "refresh": {"requested": bool, "ok": bool, "error": "...", "lists_updated_at": "<RFC 3339, or empty>"}}`. `error` says why the refresh failed: `apt is busy: another process (apt-get, PID 900941, from <unit>) holds /var/lib/apt/lists/lock` when something else holds apt's lock, or `apt-get took longer than 45s and was stopped` at the time limit. `lists_updated_at` is the newest apt `Release` file's time (empty on dnf). A refresh stops 15 s before the query's time limit, so the listing still has time. Without `fallback` the answer and errors are as before, so older hubs see no change; the hub sends `fallback` only to agents from v0.6.1, because older agents refuse arguments they don't know.
+
+A command stopped at the query's time limit gets SIGTERM first, which sudo relays, so the command it started (such as `apt-get update`) exits and releases its locks; SIGKILL follows 10 s later.
 
 ## Operations catalog
 
