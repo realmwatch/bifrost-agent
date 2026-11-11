@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestExec(t *testing.T) {
@@ -28,6 +29,26 @@ func TestExec(t *testing.T) {
 	}
 	if _, err := (Exec{}).Run(context.Background(), Command{}); err == nil {
 		t.Fatal("empty argv: no error")
+	}
+}
+
+// A program that outlives its context gets SIGTERM first, so it (or the
+// command sudo started for it) can clean up and release its locks.
+func TestExecStopsWithSIGTERMFirst(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh not available")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	var out bytes.Buffer
+	start := time.Now()
+	_, _ = Exec{}.Run(ctx, Command{Argv: []string{sh, "-c", `trap 'echo cleaned up; exit 0' TERM; echo started; while :; do sleep 0.05; done`}, Stdout: &out})
+	if got := out.String(); got != "started\ncleaned up\n" {
+		t.Fatalf("out = %q, want the TERM trap to run", got)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("took %s: SIGTERM wasn't sent at the deadline", took)
 	}
 }
 

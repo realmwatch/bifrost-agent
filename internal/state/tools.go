@@ -4,6 +4,9 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -164,12 +167,126 @@ func toolPendingUpdates(ctx context.Context, e *Env, args map[string]any) (any, 
 	if err := e.requirePM(); err != nil {
 		return nil, err
 	}
-	if refresh, _ := args["refresh"].(bool); refresh {
+	refresh, _ := args["refresh"].(bool)
+	fallback, _ := args["fallback"].(bool)
+	var refreshErr error
+	if refresh {
 		// Refresh the package lists first, so candidates are current.
-		if _, err := e.runOK(ctx, e.privileged(catalog.PrivilegedReads["pending_updates"][e.PackageManager])...); err != nil {
-			return nil, fmt.Errorf("refreshing the package lists: %w", err)
+		refreshErr = e.refreshLists(ctx)
+		if refreshErr != nil && !fallback {
+			return nil, refreshErr
 		}
 	}
+	updates, err := e.pendingUpdates(ctx)
+	if err != nil || !fallback {
+		return updates, err
+	}
+	// With fallback, a failed refresh doesn't fail the query: the updates
+	// come from the lists the server already has, and the answer says so.
+	report := RefreshReport{Requested: refresh, OK: refresh && refreshErr == nil, ListsUpdatedAt: e.listsUpdatedAt()}
+	if refreshErr != nil {
+		report.Error = refreshErr.Error()
+	}
+	return PendingUpdatesReport{Updates: updates, Refresh: report}, nil
+}
+
+// PendingUpdatesReport is pending_updates' answer when the hub asks for a
+// fallback: the updates, and whether the package lists were refreshed.
+type PendingUpdatesReport struct {
+	Updates []Update      `json:"updates"`
+	Refresh RefreshReport `json:"refresh"`
+}
+
+// RefreshReport says whether the package lists were refreshed first.
+type RefreshReport struct {
+	Requested bool   `json:"requested"`
+	OK        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+	// ListsUpdatedAt is when the lists the updates came from were last
+	// refreshed, RFC 3339 in UTC; empty if unknown.
+	ListsUpdatedAt string `json:"lists_updated_at"`
+}
+
+// listReserve is the part of the query's time a refresh leaves for listing
+// the updates afterwards.
+const listReserve = 15 * time.Second
+
+// aptLockRe matches apt's message when another process holds its lock.
+var aptLockRe = regexp.MustCompile(`Could not get lock (\S+?)\.? It is held by process ([0-9]+) \(([^)]*)\)`)
+
+// refreshLists refreshes the package lists through sudo, and says plainly
+// when another process holds apt's lock or the time limit runs out.
+func (e *Env) refreshLists(ctx context.Context) error {
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) > 2*listReserve {
+		// Stop early enough to still list the updates from the lists the
+		// server has.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline.Add(-listReserve))
+		defer cancel()
+	}
+	_, errOut, code, err := e.runCapture(ctx, e.privileged(catalog.PrivilegedReads["pending_updates"][e.PackageManager])...)
+	if err != nil {
+		return fmt.Errorf("refreshing the package lists: %w", err)
+	}
+	if code == 0 {
+		return nil
+	}
+	if m := aptLockRe.FindStringSubmatch(errOut); m != nil {
+		holder := m[3] + ", PID " + m[2]
+		if unit := e.unitOf(m[2]); unit != "" {
+			holder += ", from " + unit
+		}
+		return fmt.Errorf("refreshing the package lists: apt is busy: another process (%s) holds %s", holder, m[1])
+	}
+	if tail := stderrTail(errOut); tail != "" {
+		return fmt.Errorf("refreshing the package lists: %s exited with status %d: %s", commandName(e.privileged(catalog.PrivilegedReads["pending_updates"][e.PackageManager])), code, tail)
+	}
+	return fmt.Errorf("refreshing the package lists: %s exited with status %d", commandName(e.privileged(catalog.PrivilegedReads["pending_updates"][e.PackageManager])), code)
+}
+
+// unitOf is the systemd unit a process runs in, from /proc/<pid>/cgroup,
+// or "" when it isn't in one.
+func (e *Env) unitOf(pid string) string {
+	cg, err := e.readFile("/proc/" + pid + "/cgroup")
+	if err != nil {
+		return ""
+	}
+	for _, line := range lines(cg) {
+		unit := filepath.Base(strings.TrimSpace(line))
+		if strings.HasSuffix(unit, ".service") || strings.HasSuffix(unit, ".scope") {
+			return unit
+		}
+	}
+	return ""
+}
+
+// listsUpdatedAt is when apt's lists were last refreshed: the newest
+// Release file under /var/lib/apt/lists. dnf reports "".
+func (e *Env) listsUpdatedAt() string {
+	if e.PackageManager != catalog.PackageManagerApt {
+		return ""
+	}
+	entries, err := os.ReadDir(e.Path("/var/lib/apt/lists"))
+	if err != nil {
+		return ""
+	}
+	var newest time.Time
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), "Release") {
+			continue
+		}
+		if info, err := entry.Info(); err == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+	}
+	if newest.IsZero() {
+		return ""
+	}
+	return utcRFC3339(newest)
+}
+
+// pendingUpdates lists the upgrades the package lists offer now.
+func (e *Env) pendingUpdates(ctx context.Context) ([]Update, error) {
 	held, err := e.HeldPackages(ctx)
 	if err != nil {
 		return nil, err

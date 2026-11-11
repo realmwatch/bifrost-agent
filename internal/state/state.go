@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -80,11 +81,28 @@ func (e *Env) run(ctx context.Context, argv ...string) (stdout string, exitCode 
 // runCapture is run that also returns stderr.
 func (e *Env) runCapture(ctx context.Context, argv ...string) (stdout, stderr string, exitCode int, err error) {
 	var out, errOut strings.Builder
+	start := time.Now()
 	code, err := e.Runner.Run(ctx, runner.Command{Argv: argv, Env: []string{"TZ=UTC"}, Stdout: &out, Stderr: &errOut})
+	if ctx.Err() != nil && (err != nil || code < 0) {
+		// Stopped at the query's time limit: say so, rather than report the
+		// signal as an exit status.
+		return "", "", code, fmt.Errorf("%s took longer than %s and was stopped", commandName(argv), time.Since(start).Round(time.Second))
+	}
 	if err != nil {
 		return "", "", code, fmt.Errorf("%s: %w", argv[0], err)
 	}
 	return out.String(), errOut.String(), code, nil
+}
+
+// commandName is the program a command runs, past the sudo prefix.
+func commandName(argv []string) string {
+	if len(argv) > len(catalog.SudoArgv) && slices.Equal(argv[:len(catalog.SudoArgv)], catalog.SudoArgv) {
+		argv = argv[len(catalog.SudoArgv):]
+	}
+	if len(argv) == 0 {
+		return ""
+	}
+	return filepath.Base(argv[0])
 }
 
 // runOK is run that treats a non-zero exit as an error, and says why using
@@ -153,7 +171,7 @@ func init() {
 	register("os", noArgs, toolOS)
 	register("packages", `{"type":"object","additionalProperties":false,"properties":{
 		"names":{"type":"array","items":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._+-]*$","maxLength":128}}}}`, toolPackages)
-	register("pending_updates", `{"type":"object","additionalProperties":false,"properties":{"refresh":{"type":"boolean"}}}`, toolPendingUpdates)
+	register("pending_updates", `{"type":"object","additionalProperties":false,"properties":{"refresh":{"type":"boolean"},"fallback":{"type":"boolean"}}}`, toolPendingUpdates)
 	register("service_status", `{"type":"object","additionalProperties":false,"required":["unit"],"properties":{
 		"unit":{"type":"string","pattern":"`+unitPattern+`","maxLength":256}}}`, toolServiceStatus)
 	register("journal", `{"type":"object","additionalProperties":false,"required":["unit"],"properties":{
