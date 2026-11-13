@@ -238,9 +238,15 @@ A `passkey_batch` approval is valid for an envelope when:
 2. Its `organization_id` equals the envelope's.
 3. The envelope's hash, as lowercase hex, is in `envelopes`.
 4. The assertion is a valid passkey signature, as above, with `SHA-256(batch bytes)` as the challenge.
-5. Every operation in the envelope is in the agent's compiled batch list, `package.upgrade@1` and `packages.upgrade@1`, and every rollback step is `package.install@1`. A batch approves updates and nothing else, whatever the hub puts in it.
+5. Every operation in the envelope is in the agent's compiled batch list, and so is every rollback step. A batch approves routine fleet upkeep and nothing else, whatever the hub puts in it:
+   - operations: `package.upgrade@1`, `packages.upgrade@1`, `agent.upgrade@1`, `collector.upgrade@1`, `package.refresh@1`, `package.hold@1`, `package.unhold@1`, `service.restart@1`, `service.reload@1`, `kernel.remove@1` and `system.reboot@1`;
+   - rollback steps: `package.install@1`, `package.hold@1` and `package.unhold@1`.
 
-A valid batch approval counts as a passkey approval from that key's owner. Agents before v0.7.0 don't know the kind and ignore it, so the hub only offers batches when every server's agent is at v0.7.0 or later.
+   Agents before v0.9.0 allow only `package.upgrade@1` and `packages.upgrade@1`, with `package.install@1` as rollback.
+
+A valid batch approval counts as a passkey approval from that key's owner. Agents before v0.7.0 don't know the kind and ignore it, so the hub only offers batches when every server's agent is at v0.7.0 or later. For the operations added in v0.9.0 it requires v0.9.0.
+
+Reboots in a batch run one server at a time, in the batch's order: the hub hands a batched reboot to its agent only once the batch's previous reboot is back with a new boot ID, and stops the roll if one isn't. That ordering is the hub's; each agent checks only its own envelope.
 
 ## Trusted keys
 

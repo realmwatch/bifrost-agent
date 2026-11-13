@@ -19,11 +19,20 @@ type BatchList struct {
 	Rollback   []string
 }
 
-// CompiledBatchApproval is the agent's own batch list. A batch approves
-// updates and nothing else, whatever the hub puts in it.
+// CompiledBatchApproval is the agent's own batch list: routine fleet upkeep
+// (package updates, agent and collector upgrades, package list refreshes,
+// holds, service restarts and reloads, old kernel removal and reboots) and
+// nothing else, whatever the hub puts in it. The hub staggers the reboots
+// in a batch; each agent only checks its own envelope.
 var CompiledBatchApproval = BatchList{
-	Operations: []string{"package.upgrade@1", "packages.upgrade@1"},
-	Rollback:   []string{"package.install@1"},
+	Operations: []string{
+		"package.upgrade@1", "packages.upgrade@1",
+		"agent.upgrade@1", "collector.upgrade@1",
+		"package.refresh@1", "package.hold@1", "package.unhold@1",
+		"service.restart@1", "service.reload@1",
+		"kernel.remove@1", "system.reboot@1",
+	},
+	Rollback: []string{"package.install@1", "package.hold@1", "package.unhold@1"},
 }
 
 // allows reports why env is not batchable, or nil when it is.
