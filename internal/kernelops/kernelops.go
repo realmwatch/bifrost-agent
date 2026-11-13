@@ -22,7 +22,7 @@ import (
 
 // MaxKernels is how many releases one call may name, as the operation's
 // schema allows.
-const MaxKernels = 10
+const MaxKernels = 50
 
 var (
 	// releaseRe is a kernel release as uname -r prints it, such as

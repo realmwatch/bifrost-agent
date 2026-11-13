@@ -312,7 +312,7 @@ func TestCheckSimulatesOnly(t *testing.T) {
 
 func TestRejectsBadReleasesAndNonAptHosts(t *testing.T) {
 	h := newHost(t, "6.8.0-49-generic")
-	for _, bad := range [][]string{{"6.8.0-45-generic;reboot"}, {"-6.8"}, {"../../etc"}, {"6.8"}, {}, {"6.8.0-1-a", "6.8.0-2-a", "6.8.0-3-a", "6.8.0-4-a", "6.8.0-5-a", "6.8.0-6-a", "6.8.0-7-a", "6.8.0-8-a", "6.8.0-9-a", "6.8.0-10-a", "6.8.0-11-a"}} {
+	for _, bad := range [][]string{{"6.8.0-45-generic;reboot"}, {"-6.8"}, {"../../etc"}, {"6.8"}, {}, releases(MaxKernels + 1)} {
 		if err := h.env(&strings.Builder{}).Remove(context.Background(), bad); err == nil {
 			t.Errorf("%v accepted", bad)
 		}
@@ -339,5 +339,39 @@ func TestCompareVersions(t *testing.T) {
 	}
 	if compareVersions("1.0~rc1", "1.0") != -1 || compareVersions("1.0a", "1.0+") != -1 {
 		t.Error("~ or letters sort wrong")
+	}
+}
+
+// releases lists n distinct generic kernel releases, oldest first.
+func releases(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("6.8.0-%d-generic", i+1)
+	}
+	return out
+}
+
+func TestRemovesFiftyKernelsInOnePurge(t *testing.T) {
+	old := releases(MaxKernels)
+	h := newHost(t, "6.8.0-200-generic")
+	h.kernel("6.8.0-200-generic")
+	for _, r := range old {
+		h.kernel(r)
+	}
+
+	if err := h.env(&strings.Builder{}).Remove(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	purges := 0
+	for _, c := range h.calls {
+		if strings.HasPrefix(c, "/usr/bin/apt-get -q -y ") {
+			purges++
+		}
+	}
+	if purges != 1 || len(h.purged) != 5*MaxKernels {
+		t.Fatalf("%d purge runs removed %d packages", purges, len(h.purged))
+	}
+	if _, ok := h.pkgs["linux-image-6.8.0-200-generic"]; !ok {
+		t.Error("the running kernel was removed")
 	}
 }
