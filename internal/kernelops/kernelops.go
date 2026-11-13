@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/realmwatch/bifrost-agent/internal/catalog"
+	"github.com/realmwatch/bifrost-agent/internal/debversion"
 	"github.com/realmwatch/bifrost-agent/internal/runner"
 	"github.com/realmwatch/bifrost-agent/internal/state"
 )
@@ -150,7 +151,7 @@ func (e *Env) plan(ctx context.Context, releases []string) (*plan, error) {
 	kernels := installedKernels(all)
 	newest := running
 	for _, k := range kernels {
-		if compareVersions(k, newest) > 0 {
+		if debversion.Compare(k, newest) > 0 {
 			newest = k
 		}
 	}
@@ -164,7 +165,7 @@ func (e *Env) plan(ctx context.Context, releases []string) (*plan, error) {
 			reason = "not installed"
 		case r == running:
 			reason = "it's the running kernel"
-		case compareVersions(r, running) > 0:
+		case debversion.Compare(r, running) > 0:
 			reason = "newer than the running kernel " + running
 		case r == newest:
 			reason = "it's the newest installed kernel"

@@ -1,0 +1,55 @@
+{
+  "name": "packages.remove_obsolete",
+  "version": 1,
+  "description": "Purge packages an in-place release upgrade left behind: installed, offered by no configured source, and built for an older release. When it runs it skips any listed package that isn't such a leftover, and refuses before changing anything while a running process loads one of their libraries or if the purge simulation would remove or install any other package. It can't be undone: no configured source offers these versions any more.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "packages"
+    ],
+    "properties": {
+      "packages": {
+        "type": "array",
+        "description": "Package names to purge.",
+        "minItems": 1,
+        "maxItems": 100,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.+-]*$",
+          "maxLength": 128
+        }
+      }
+    }
+  },
+  "rollback": null,
+  "irreversible": true,
+  "health_check": "The helper confirms with dpkg that the packages are gone.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "release",
+        "remove-obsolete",
+        "{*packages}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "release",
+        "remove-obsolete",
+        "{*packages}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent release remove-obsolete *",
+      "dnf": "/usr/local/bin/bifrost-agent release remove-obsolete *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

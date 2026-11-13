@@ -1,0 +1,50 @@
+{
+  "name": "apt.source.retarget",
+  "version": 1,
+  "description": "Point one apt sources file at the host's current release after an in-place upgrade: every suite in it that names an older release (focal, focal-pgdg) becomes the current one (jammy, jammy-pgdg). It never changes a URI, a key or anything else, and drops a line that would duplicate one already there. Before writing the file it refreshes the changed entries from a copy, and keeps the old file unless the source offers the current release signed by the key it already trusts. The old file is backed up under /var/backups/apt-sources.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "file"
+    ],
+    "properties": {
+      "file": {
+        "type": "string",
+        "description": "A file in /etc/apt/sources.list.d, such as pgdg.list.",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.(list|sources)$",
+        "maxLength": 128
+      }
+    }
+  },
+  "rollback": "apt.source.restore",
+  "irreversible": false,
+  "health_check": "The helper refreshes the retargeted entries before keeping the change.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "release",
+        "retarget",
+        "{file}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "release",
+        "retarget",
+        "{file}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent release retarget *",
+      "dnf": "/usr/local/bin/bifrost-agent release retarget *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

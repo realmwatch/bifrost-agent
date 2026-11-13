@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -223,4 +224,27 @@ func ParseDnfVersionlock(out string) map[string]bool {
 		}
 	}
 	return names
+}
+
+// toolReleaseLeftovers reports what an in-place release upgrade left
+// behind: apt sources naming the old release, obsolete packages from it,
+// packages built for it, and the processes still loading them. The agent's
+// own helper gathers it as root (it reads every process's memory map).
+func toolReleaseLeftovers(ctx context.Context, e *Env, _ map[string]any) (any, error) {
+	if err := e.requirePM(); err != nil {
+		return nil, err
+	}
+	argv, ok := catalog.PrivilegedReads["release_leftovers"][e.PackageManager]
+	if !ok {
+		return nil, fmt.Errorf("release_leftovers is only supported on apt hosts")
+	}
+	out, err := e.runOK(ctx, e.privileged(argv)...)
+	if err != nil {
+		return nil, err
+	}
+	var report map[string]any
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		return nil, fmt.Errorf("reading the leftovers report: %w", err)
+	}
+	return report, nil
 }

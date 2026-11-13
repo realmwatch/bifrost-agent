@@ -45,6 +45,10 @@ var PrivilegedReads = map[string]map[string][]string{
 		PackageManagerApt: {"/usr/sbin/needrestart", "-b", "-r", "l"},
 		PackageManagerDnf: {"/usr/bin/dnf", "-q", "needs-restarting", "-s"},
 	},
+	// release_leftovers reads /proc/*/maps, which needs root.
+	"release_leftovers": {
+		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "release", "leftovers"},
+	},
 }
 
 // healthCheck describes a health check implemented in Go: the templated

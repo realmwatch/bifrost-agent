@@ -28,6 +28,7 @@ import (
 	"github.com/realmwatch/bifrost-agent/internal/keystore"
 	"github.com/realmwatch/bifrost-agent/internal/nonce"
 	"github.com/realmwatch/bifrost-agent/internal/phpops"
+	"github.com/realmwatch/bifrost-agent/internal/releaseops"
 	"github.com/realmwatch/bifrost-agent/internal/runner"
 	"github.com/realmwatch/bifrost-agent/internal/state"
 	"github.com/realmwatch/bifrost-agent/internal/verify"
@@ -67,6 +68,8 @@ Commands:
                        Reinstall a removed PHP version from its backup.
   kernel remove RELEASE...
                        Purge old kernels that aren't running (root, apt).
+  release leftovers | retarget FILE | disable FILE | restore FILE | remove-obsolete PACKAGE...
+                       Clean up after an in-place release upgrade (root, apt).
   kernel check RELEASE...
                        Show what kernel remove would purge, changing nothing.
   version              Print the agent version.
@@ -106,6 +109,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = cmdPHP(rest, stdout)
 	case "kernel":
 		err = cmdKernel(rest, stdout)
+	case "release":
+		err = cmdRelease(rest, stdout)
 	case "help", "-h", "--help":
 		fmt.Fprintf(stdout, usage, strings.Join(state.ToolNames(), ", "))
 		return ExitOK
@@ -165,6 +170,43 @@ func cmdKernel(args []string, stdout io.Writer) error {
 		return errors.New("kernel remove must run as root")
 	}
 	return e.Remove(context.Background(), args[1:])
+}
+
+// cmdRelease runs the release cleanup: the leftovers report (for the
+// release_leftovers state tool) and the operations, all as root.
+func cmdRelease(args []string, stdout io.Writer) error {
+	usage := usageError{"usage: bifrost-agent release leftovers | retarget FILE | disable FILE | restore FILE | remove-obsolete PACKAGE..."}
+	if len(args) == 0 {
+		return usage
+	}
+	switch {
+	case args[0] == "leftovers" && len(args) == 1,
+		(args[0] == "retarget" || args[0] == "disable" || args[0] == "restore") && len(args) == 2,
+		args[0] == "remove-obsolete" && len(args) >= 2:
+	default:
+		return usage
+	}
+	if os.Geteuid() != 0 {
+		return errors.New("release " + args[0] + " must run as root")
+	}
+	e := releaseops.NewEnv(runner.Exec{}, stdout)
+	ctx := context.Background()
+	switch args[0] {
+	case "leftovers":
+		r, err := e.Leftovers(ctx)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(r)
+	case "retarget":
+		return e.Retarget(ctx, args[1])
+	case "disable":
+		return e.Disable(ctx, args[1])
+	case "restore":
+		return e.Restore(ctx, args[1])
+	default:
+		return e.RemoveObsolete(ctx, args[1:])
+	}
 }
 
 type usageError struct{ msg string }

@@ -1,11 +1,11 @@
-package kernelops
+package debversion
 
-// compareVersions orders two strings as dpkg orders versions (its verrevcmp):
+// Compare orders two strings as dpkg orders versions (its verrevcmp):
 // runs of non-digits compare character by character, with letters before
 // other characters and "~" before everything, even the end; runs of digits
 // compare as numbers. Kernel releases sort correctly this way:
 // 6.8.0-45-generic < 6.8.0-49-generic < 6.8.0-100-generic.
-func compareVersions(a, b string) int {
+func Compare(a, b string) int {
 	for a != "" || b != "" {
 		for (a != "" && !isDigit(a[0])) || (b != "" && !isDigit(b[0])) {
 			ac, bc := order(a), order(b)

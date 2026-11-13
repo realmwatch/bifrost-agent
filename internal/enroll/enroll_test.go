@@ -53,7 +53,7 @@ func TestRun(t *testing.T) {
 	if osm := got["os"].(map[string]any); osm["id"] != "debian" || osm["version_id"] != "12" {
 		t.Fatalf("os = %v", osm)
 	}
-	if ops := got["operations"].([]any); len(ops) != 18 {
+	if ops := got["operations"].([]any); len(ops) != 22 {
 		t.Fatalf("operations = %v", ops)
 	}
 	saved, err := config.LoadState(cfg.StatePath())
