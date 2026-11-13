@@ -86,6 +86,24 @@ func TestBatchApproval(t *testing.T) {
 				"packages": []any{map[string]any{"name": "openssl", "version": "3.0.13-0ubuntu3.4"}}}}}
 		}), batch: good},
 		{name: "no rollback batchable", envelope: with(func(m map[string]any) { m["rollback"] = []any{} }), batch: good},
+		{name: "service.restart batchable", envelope: func() []byte { return encode(restartEnvelope()) }, batch: good},
+		{name: "reboot batchable", envelope: with(func(m map[string]any) {
+			m["operations"] = []any{map[string]any{"op": "system.reboot", "version": 1, "params": map[string]any{}}}
+			m["rollback"] = []any{}
+		}), batch: good},
+		{name: "agent upgrade batchable", envelope: with(func(m map[string]any) {
+			m["operations"] = []any{map[string]any{"op": "agent.upgrade", "version": 1, "params": map[string]any{"version": "v0.9.1"}}}
+			m["rollback"] = []any{}
+		}), batch: good},
+		{name: "kernel removal batchable", envelope: with(func(m map[string]any) {
+			m["operations"] = []any{map[string]any{"op": "kernel.remove", "version": 1, "params": map[string]any{"kernels": []any{"6.8.0-45-generic"}}}}
+			m["rollback"] = []any{}
+			m["irreversible"] = true
+		}), batch: good},
+		{name: "hold with unhold rollback batchable", envelope: with(func(m map[string]any) {
+			m["operations"] = []any{map[string]any{"op": "package.hold", "version": 1, "params": map[string]any{"name": "openssl"}}}
+			m["rollback"] = []any{map[string]any{"op": "package.unhold", "version": 1, "params": map[string]any{"name": "openssl"}}}
+		}), batch: good},
 		{name: "eddsa batch", envelope: std, batch: good, approvals: func(env, batch []byte) []Approval {
 			return []Approval{batchApproval(f.ed, batch)}
 		}},
@@ -149,21 +167,29 @@ func TestBatchApproval(t *testing.T) {
 			return []Approval{a}
 		}, wantErr: "challenge does not match"},
 
-		{name: "service.restart not batchable", envelope: func() []byte { return encode(restartEnvelope()) }, batch: good,
-			wantErr: "operation service.restart@1 can't be approved in a batch"},
+		{name: "service.stop not batchable", envelope: func() []byte {
+			m := restartEnvelope()
+			m["operations"] = []any{map[string]any{"op": "service.stop", "version": 1, "params": map[string]any{"unit": "nginx.service"}}}
+			return encode(m)
+		}, batch: good,
+			wantErr: "operation service.stop@1 can't be approved in a batch"},
 		{name: "package.install as an operation", envelope: with(func(m map[string]any) {
 			m["operations"] = []any{map[string]any{"op": "package.install", "version": 1, "params": map[string]any{"name": "openssl", "version": "3.0.13-0ubuntu3.1"}}}
 		}), batch: good, wantErr: "operation package.install@1 can't be approved in a batch"},
 		{name: "batchable op beside one that isn't", envelope: with(func(m map[string]any) {
-			m["operations"] = append(m["operations"].([]any), map[string]any{"op": "system.reboot", "version": 1, "params": map[string]any{}})
-		}), batch: good, wantErr: "operation system.reboot@1 can't be approved in a batch"},
+			m["operations"] = append(m["operations"].([]any), map[string]any{"op": "service.stop", "version": 1, "params": map[string]any{"unit": "nginx.service"}})
+		}), batch: good, wantErr: "operation service.stop@1 can't be approved in a batch"},
 		{name: "rollback step not batchable", envelope: with(func(m map[string]any) {
 			m["rollback"] = []any{map[string]any{"op": "service.restart", "version": 1, "params": map[string]any{"unit": "nginx.service"}}}
 		}), batch: good, wantErr: "rollback step service.restart@1 can't be approved in a batch"},
 		{name: "upgrade as a rollback step", envelope: with(func(m map[string]any) {
 			m["rollback"] = []any{map[string]any{"op": "package.upgrade", "version": 1, "params": map[string]any{"name": "openssl", "to": "3.0.13-0ubuntu3.1"}}}
 		}), batch: good, wantErr: "rollback step package.upgrade@1 can't be approved in a batch"},
-		{name: "not batchable but a plain passkey approves", envelope: func() []byte { return encode(restartEnvelope()) }, batch: good,
+		{name: "not batchable but a plain passkey approves", envelope: func() []byte {
+			m := restartEnvelope()
+			m["operations"] = []any{map[string]any{"op": "service.stop", "version": 1, "params": map[string]any{"unit": "nginx.service"}}}
+			return encode(m)
+		}, batch: good,
 			approvals: func(env, batch []byte) []Approval {
 				return []Approval{batchApproval(f.es, batch), passkey(f.es, env, assertOpts{})}
 			}},
@@ -220,8 +246,17 @@ func TestBatchApproval(t *testing.T) {
 	}
 }
 
-func TestCompiledBatchApprovalIsUpdatesOnly(t *testing.T) {
-	want := BatchList{Operations: []string{"package.upgrade@1", "packages.upgrade@1"}, Rollback: []string{"package.install@1"}}
+func TestCompiledBatchApprovalIsFleetUpkeepOnly(t *testing.T) {
+	want := BatchList{
+		Operations: []string{
+			"package.upgrade@1", "packages.upgrade@1",
+			"agent.upgrade@1", "collector.upgrade@1",
+			"package.refresh@1", "package.hold@1", "package.unhold@1",
+			"service.restart@1", "service.reload@1",
+			"kernel.remove@1", "system.reboot@1",
+		},
+		Rollback: []string{"package.install@1", "package.hold@1", "package.unhold@1"},
+	}
 	if fmt.Sprint(CompiledBatchApproval) != fmt.Sprint(want) {
 		t.Fatalf("CompiledBatchApproval = %v, want %v", CompiledBatchApproval, want)
 	}
