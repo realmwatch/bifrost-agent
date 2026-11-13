@@ -174,6 +174,9 @@ var (
 	// repeatRe matches a list argument, "{*param:template}": one argument per
 	// item of the list param, each filled from that item's fields.
 	repeatRe = regexp.MustCompile(`^\{\*([a-z_][a-z0-9_]*):(.+)\}$`)
+	// eachRe matches a string list argument, "{*param}": one argument per
+	// item of a list of strings.
+	eachRe = regexp.MustCompile(`^\{\*([a-z_][a-z0-9_]*)\}$`)
 	// optionalRe matches an optional last argument, "{param?}": left out
 	// when the param is absent.
 	optionalRe = regexp.MustCompile(`^\{([a-z_][a-z0-9_]*)\?\}$`)
@@ -415,6 +418,33 @@ func listItems(name string, ps *schema.Schema) (*schema.Schema, error) {
 	return p.Items, nil
 }
 
+// stringListItems checks a string list param: required, bounded (minItems
+// at least 1 and a maxItems), and holding strings with an anchored pattern
+// and a maxLength.
+func stringListItems(name string, ps *schema.Schema) error {
+	p, ok := ps.Properties[name]
+	if !ok {
+		return fmt.Errorf("{*%s} is not a declared param", name)
+	}
+	if p.Type != "array" || p.Items == nil || p.Items.Type != "string" {
+		return fmt.Errorf("{*%s} must be an array of strings", name)
+	}
+	items := p.Items
+	if items.Pattern == nil || items.MaxLength == nil {
+		return fmt.Errorf("items of {*%s} need a pattern and a maxLength", name)
+	}
+	if src := items.Pattern.String(); !strings.HasPrefix(src, "^") || !strings.HasSuffix(src, "$") {
+		return fmt.Errorf("items of {*%s} need a pattern anchored with ^ and $", name)
+	}
+	if p.MinItems == nil || *p.MinItems < 1 || p.MaxItems == nil {
+		return fmt.Errorf("{*%s} needs minItems of at least 1 and a maxItems", name)
+	}
+	if !isRequired(ps, name) {
+		return fmt.Errorf("{*%s} must be a required param", name)
+	}
+	return nil
+}
+
 func isRequired(ps *schema.Schema, name string) bool {
 	for _, r := range ps.Required {
 		if r == name {
@@ -457,6 +487,15 @@ func checkTemplate(argv []string, ps *schema.Schema) error {
 			}
 			if err := checkElement(m[2], items); err != nil {
 				return fmt.Errorf("list argument {*%s:...}: %w", m[1], err)
+			}
+			continue
+		}
+		if m := eachRe.FindStringSubmatch(el); m != nil {
+			if i != len(argv)-1 {
+				return fmt.Errorf("a list argument {*%s} must be the last argument", m[1])
+			}
+			if err := stringListItems(m[1], ps); err != nil {
+				return err
 			}
 			continue
 		}
@@ -506,7 +545,7 @@ func SudoRule(argv []string) string {
 		switch {
 		case optionalRe.MatchString(el):
 			// A sudoers "*" before it already matches any further arguments.
-		case placeholderRe.MatchString(el):
+		case placeholderRe.MatchString(el), eachRe.MatchString(el):
 			out = append(out, "*")
 		default:
 			out = append(out, el)
@@ -687,6 +726,20 @@ func fill(tmpl []string, params map[string]any) ([]string, error) {
 				s, err := fillOne(m[2], fields)
 				if err != nil {
 					return nil, fmt.Errorf("%s[%d]: %w", m[1], i, err)
+				}
+				out = append(out, s)
+			}
+			continue
+		}
+		if m := eachRe.FindStringSubmatch(el); m != nil {
+			items, ok := params[m[1]].([]any)
+			if !ok || len(items) == 0 {
+				return nil, fmt.Errorf("param %q must be a non-empty list", m[1])
+			}
+			for i, item := range items {
+				s, ok := item.(string)
+				if !ok || s == "" || strings.HasPrefix(s, "-") || strings.ContainsRune(s, 0) {
+					return nil, fmt.Errorf("%s[%d] must be a string that isn't empty, doesn't start with '-' and holds no NUL", m[1], i)
 				}
 				out = append(out, s)
 			}

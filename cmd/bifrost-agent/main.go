@@ -24,6 +24,7 @@ import (
 	"github.com/realmwatch/bifrost-agent/internal/enroll"
 	"github.com/realmwatch/bifrost-agent/internal/executor"
 	"github.com/realmwatch/bifrost-agent/internal/hubclient"
+	"github.com/realmwatch/bifrost-agent/internal/kernelops"
 	"github.com/realmwatch/bifrost-agent/internal/keystore"
 	"github.com/realmwatch/bifrost-agent/internal/nonce"
 	"github.com/realmwatch/bifrost-agent/internal/phpops"
@@ -64,6 +65,10 @@ Commands:
   php remove VERSION   Remove one PHP version if nothing uses it (root, apt).
   php restore VERSION [BACKUP]
                        Reinstall a removed PHP version from its backup.
+  kernel remove RELEASE...
+                       Purge old kernels that aren't running (root, apt).
+  kernel check RELEASE...
+                       Show what kernel remove would purge, changing nothing.
   version              Print the agent version.
 `
 
@@ -99,6 +104,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = cmdTrustedKeys(rest, stdout, stderr)
 	case "php":
 		err = cmdPHP(rest, stdout)
+	case "kernel":
+		err = cmdKernel(rest, stdout)
 	case "help", "-h", "--help":
 		fmt.Fprintf(stdout, usage, strings.Join(state.ToolNames(), ", "))
 		return ExitOK
@@ -143,6 +150,21 @@ func cmdPHP(args []string, stdout io.Writer) error {
 		backup = args[2]
 	}
 	return e.Restore(context.Background(), args[1], backup)
+}
+
+// cmdKernel runs kernel.remove through sudo, and its dry run as any user.
+func cmdKernel(args []string, stdout io.Writer) error {
+	if len(args) < 2 || (args[0] != "remove" && args[0] != "check") {
+		return usageError{"usage: bifrost-agent kernel remove|check RELEASE..."}
+	}
+	e := &kernelops.Env{Runner: runner.Exec{}, Out: stdout}
+	if args[0] == "check" {
+		return e.Check(context.Background(), args[1:])
+	}
+	if os.Geteuid() != 0 {
+		return errors.New("kernel remove must run as root")
+	}
+	return e.Remove(context.Background(), args[1:])
 }
 
 type usageError struct{ msg string }

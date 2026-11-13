@@ -1,0 +1,69 @@
+{
+  "name": "kernel.remove",
+  "version": 1,
+  "description": "Purge old kernels from an apt host. At execution time the agent removes only listed kernels that are installed, older than the running kernel, and not the newest installed one; any other listed kernel is skipped and reported. It finds each kernel's packages with dpkg, and refuses before changing anything if nothing is left to remove or if purging them would remove or install any other package, such as a kernel metapackage. After the purge it checks that the packages are gone and that the running kernel's packages and modules are untouched. It can't be undone and needs no reboot.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "kernels"
+    ],
+    "properties": {
+      "kernels": {
+        "type": "array",
+        "description": "Kernel releases to remove, as uname -r prints them, such as 6.8.0-45-generic.",
+        "minItems": 1,
+        "maxItems": 10,
+        "items": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?-[A-Za-z0-9.+~_-]+$",
+          "maxLength": 64
+        }
+      }
+    }
+  },
+  "rollback": null,
+  "irreversible": true,
+  "health_check": "The helper confirms with dpkg that the removed kernels' packages are gone and the running kernel's packages and modules are untouched.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "kernel",
+        "remove",
+        "{*kernels}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "kernel",
+        "remove",
+        "{*kernels}"
+      ]
+    },
+    "dry_run_argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "kernel",
+        "check",
+        "{*kernels}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "kernel",
+        "check",
+        "{*kernels}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent kernel remove *",
+      "dnf": "/usr/local/bin/bifrost-agent kernel remove *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}
