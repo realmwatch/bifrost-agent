@@ -18,6 +18,7 @@ func TestEmbeddedCatalog(t *testing.T) {
 	want := []string{
 		"agent.upgrade@1",
 		"collector.upgrade@1",
+		"kernel.remove@1",
 		"package.hold@1", "package.install@1", "package.refresh@1", "package.unhold@1", "package.upgrade@1",
 		"packages.upgrade@1",
 		"php.remove@1", "php.restore@1",
@@ -35,6 +36,7 @@ func TestEmbeddedCatalog(t *testing.T) {
 		"service.start@1": TierLow, "service.stop@1": TierMedium,
 		"system.reboot@1": TierHigh, "agent.upgrade@1": TierHigh, "collector.upgrade@1": TierHigh,
 		"php.remove@1": TierHigh, "php.restore@1": TierHigh,
+		"kernel.remove@1": TierMedium,
 	}
 	for _, d := range c.Definitions() {
 		if d.MinTier != tiers[d.Key()] {
@@ -209,7 +211,7 @@ func TestExport(t *testing.T) {
 	if err := json.Unmarshal(out, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 17 {
+	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 18 {
 		t.Fatalf("doc = %+v", doc)
 	}
 	wantKeys := []string{"description", "dry_run", "files_written", "health_check", "irreversible", "min_tier", "name", "params", "rollback", "version"}
@@ -398,5 +400,68 @@ func TestOptionalArgument(t *testing.T) {
 	}
 	if rule := SudoRule(d.Argv[PackageManagerApt]); rule != "/usr/local/bin/bifrost-agent php restore *" {
 		t.Fatalf("rule = %q", rule)
+	}
+}
+
+func TestStringListArgument(t *testing.T) {
+	kr, ok := MustEmbedded().Get("kernel.remove", 1)
+	if !ok {
+		t.Fatal("kernel.remove@1 missing")
+	}
+	if !kr.Irreversible || kr.Rollback != "" || kr.Reboots {
+		t.Fatalf("kernel.remove@1 irreversible=%v rollback=%q reboots=%v", kr.Irreversible, kr.Rollback, kr.Reboots)
+	}
+	params := map[string]any{"kernels": []any{"6.8.0-41-generic", "6.8.0-45-generic"}}
+	got, err := kr.Expand(PackageManagerApt, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"/usr/local/bin/bifrost-agent", "kernel", "remove", "6.8.0-41-generic", "6.8.0-45-generic"}; !reflect.DeepEqual(got.Argv, want) || !got.Privileged {
+		t.Fatalf("argv = %q, privileged = %v", got.Argv, got.Privileged)
+	}
+	dry, err := kr.ExpandDryRun(PackageManagerApt, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"/usr/local/bin/bifrost-agent", "kernel", "check", "6.8.0-41-generic", "6.8.0-45-generic"}; !reflect.DeepEqual(dry.Argv, want) || dry.Privileged {
+		t.Fatalf("dry run argv = %q, privileged = %v", dry.Argv, dry.Privileged)
+	}
+	if kr.Sudo[PackageManagerApt] != "/usr/local/bin/bifrost-agent kernel remove *" {
+		t.Fatalf("sudo = %q", kr.Sudo[PackageManagerApt])
+	}
+	for _, bad := range []any{[]any{}, []any{"-rf"}, []any{""}, []any{"a\x00b"}, []any{map[string]any{"name": "x"}}, "6.8.0-45-generic"} {
+		if _, err := kr.Expand(PackageManagerApt, map[string]any{"kernels": bad}); err == nil {
+			t.Errorf("%v expanded", bad)
+		}
+	}
+	for _, bad := range []any{[]any{"6.8.0-45-generic;reboot"}, []any{"6.8"}, []any{"../etc"}, []any{strings.Repeat("6", 70) + ".0-1"}} {
+		if err := kr.Params.Validate(map[string]any{"kernels": bad}); err == nil {
+			t.Errorf("%v passed the schema", bad)
+		}
+	}
+
+	list := `{"type":"object","additionalProperties":false,"required":["names"],"properties":{"names":{"type":"array","minItems":1,"maxItems":5,
+		"items":{"type":"string","pattern":"^[a-z]+$","maxLength":10}}}}`
+	def := func(params, argv string) string {
+		return `{"name":"test.op","version":1,"description":"d","min_tier":"low","params":` + params + `,"rollback":null,"irreversible":false,
+			"health_check":"h","files_written":[],"agent":{"privileged":false,"argv":{"apt":` + argv + `,"dnf":` + argv + `},"health":{"check":"exit_status","args":{}}}}`
+	}
+	if _, err := Parse([]byte(def(list, `["/bin/x","{*names}"]`))); err != nil {
+		t.Fatalf("valid string list rejected: %v", err)
+	}
+	cases := map[string]string{
+		"not last":         def(list, `["/bin/x","{*names}","y"]`),
+		"no pattern":       def(strings.Replace(list, `"pattern":"^[a-z]+$",`, ``, 1), `["/bin/x","{*names}"]`),
+		"unanchored":       def(strings.Replace(list, `"^[a-z]+$"`, `"[a-z]+"`, 1), `["/bin/x","{*names}"]`),
+		"no maxLength":     def(strings.Replace(list, `,"maxLength":10`, ``, 1), `["/bin/x","{*names}"]`),
+		"unbounded":        def(strings.Replace(list, `"maxItems":5,`, ``, 1), `["/bin/x","{*names}"]`),
+		"optional":         def(strings.Replace(list, `"required":["names"],`, ``, 1), `["/bin/x","{*names}"]`),
+		"objects":          def(`{"type":"object","additionalProperties":false,"required":["names"],"properties":{"names":{"type":"array","minItems":1,"maxItems":5,"items":{"type":"object","additionalProperties":false,"properties":{}}}}}`, `["/bin/x","{*names}"]`),
+		"undeclared param": def(list, `["/bin/x","{*other}"]`),
+	}
+	for name, doc := range cases {
+		if _, err := Parse([]byte(doc)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

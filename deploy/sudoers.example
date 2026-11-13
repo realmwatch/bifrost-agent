@@ -23,6 +23,8 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl restart *
 bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl start *
 # service.stop@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl stop *
+# kernel.remove@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent kernel remove *
 # php.remove@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php remove *
 # php.restore@1
