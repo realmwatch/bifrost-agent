@@ -1,0 +1,50 @@
+{
+  "name": "apt.source.restore",
+  "version": 1,
+  "description": "Rollback of apt.source.retarget and apt.source.disable: put back the newest backup of one sources file from /var/backups/apt-sources. With no backup and the file in place, it changes nothing.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "file"
+    ],
+    "properties": {
+      "file": {
+        "type": "string",
+        "description": "A file in /etc/apt/sources.list.d, such as pgdg.list.",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.(list|sources)$",
+        "maxLength": 128
+      }
+    }
+  },
+  "rollback": null,
+  "irreversible": false,
+  "health_check": "The file matches its newest backup.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "release",
+        "restore",
+        "{file}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "release",
+        "restore",
+        "{file}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent release restore *",
+      "dnf": "/usr/local/bin/bifrost-agent release restore *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

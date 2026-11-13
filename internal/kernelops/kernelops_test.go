@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/realmwatch/bifrost-agent/internal/debversion"
 	"github.com/realmwatch/bifrost-agent/internal/runner"
 )
 
@@ -331,13 +332,13 @@ func TestCompareVersions(t *testing.T) {
 	ordered := []string{"6.1.0-0.deb11.17-amd64", "6.1.0-18-amd64", "6.8.0-9-generic", "6.8.0-41-generic", "6.8.0-45-generic", "6.8.0-100-generic", "6.8.0-1012-aws", "6.10.0-1-generic"}
 	for i := range ordered {
 		for j := range ordered {
-			want := sign(i - j)
-			if got := compareVersions(ordered[i], ordered[j]); got != want {
+			want := min(max(i-j, -1), 1)
+			if got := debversion.Compare(ordered[i], ordered[j]); got != want {
 				t.Errorf("compare(%s, %s) = %d, want %d", ordered[i], ordered[j], got, want)
 			}
 		}
 	}
-	if compareVersions("1.0~rc1", "1.0") != -1 || compareVersions("1.0a", "1.0+") != -1 {
+	if debversion.Compare("1.0~rc1", "1.0") != -1 || debversion.Compare("1.0a", "1.0+") != -1 {
 		t.Error("~ or letters sort wrong")
 	}
 }

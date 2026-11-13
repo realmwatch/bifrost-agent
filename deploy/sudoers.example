@@ -29,6 +29,14 @@ bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent kernel remove *
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php remove *
 # php.restore@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php restore *
+# apt.source.disable@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release disable *
+# packages.remove_obsolete@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release remove-obsolete *
+# apt.source.restore@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release restore *
+# apt.source.retarget@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release retarget *
 # agent.upgrade@1
 bifrost ALL=(root) NOPASSWD: /usr/local/lib/bifrost-agent/install.sh --self-upgrade *
 # collector.upgrade@1
@@ -47,6 +55,8 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/apt-get -q update
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-mark hold *
 # package.unhold@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-mark unhold *
+# state tool release_leftovers (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release leftovers
 # state tool services_needing_restart (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/sbin/needrestart -b -r l
 

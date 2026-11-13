@@ -183,6 +183,7 @@ func init() {
 	register("sessions", noArgs, toolSessions)
 	register("boot", noArgs, toolBoot)
 	register("services_needing_restart", noArgs, toolServicesNeedingRestart)
+	register("release_leftovers", noArgs, toolReleaseLeftovers)
 }
 
 // ToolNames lists the tools, sorted.

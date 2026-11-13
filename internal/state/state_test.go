@@ -352,7 +352,7 @@ func TestFactsAndDetect(t *testing.T) {
 }
 
 func TestToolNames(t *testing.T) {
-	want := []string{"boot", "disk", "journal", "memory", "os", "packages", "pending_updates", "ports", "service_status", "services_needing_restart", "sessions"}
+	want := []string{"boot", "disk", "journal", "memory", "os", "packages", "pending_updates", "ports", "release_leftovers", "service_status", "services_needing_restart", "sessions"}
 	if got := ToolNames(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tools = %v", got)
 	}
