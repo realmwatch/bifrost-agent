@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"sort"
@@ -434,7 +435,17 @@ func TestStringListArgument(t *testing.T) {
 			t.Errorf("%v expanded", bad)
 		}
 	}
-	for _, bad := range []any{[]any{"6.8.0-45-generic;reboot"}, []any{"6.8"}, []any{"../etc"}, []any{strings.Repeat("6", 70) + ".0-1"}} {
+	kernels := func(n int) []any {
+		out := make([]any, n)
+		for i := range out {
+			out[i] = fmt.Sprintf("6.8.0-%d-generic", i+1)
+		}
+		return out
+	}
+	if err := kr.Params.Validate(map[string]any{"kernels": kernels(50)}); err != nil {
+		t.Errorf("50 kernels refused: %v", err)
+	}
+	for _, bad := range []any{kernels(51), []any{"6.8.0-45-generic;reboot"}, []any{"6.8"}, []any{"../etc"}, []any{strings.Repeat("6", 70) + ".0-1"}} {
 		if err := kr.Params.Validate(map[string]any{"kernels": bad}); err == nil {
 			t.Errorf("%v passed the schema", bad)
 		}
