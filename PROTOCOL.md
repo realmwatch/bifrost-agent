@@ -314,6 +314,8 @@ In order; the first failure is a `rejected` event and nothing runs.
 
 Then it runs the operations in order. If one fails or its health check fails, it runs the rollback steps (if any) and reports `rolled_back`, otherwise `failed`.
 
+From v0.11.0, the agent also lists the failed systemd services (leaving out oneshot ones, which timers run) before the operations and again a few seconds after they all succeed. A service failed afterwards that wasn't before (for example one needrestart restarted after an upgrade, which then couldn't start) fails the change: the agent sends a second `health` event for the last operation with `ok: false` and a `detail` naming the services, then rolls back as for any failed health check. It skips this for envelopes that reboot or replace the agent, and when it can't read the list.
+
 ## Approver app ↔ hub
 
 The approver app is static and has no session with the hub. The hub gives it temporary signed URLs, opened as `{approver}/#register=<url-encoded signed URL>`, `{approver}/#approve=<url-encoded signed URL>`, `{approver}/#keyset=<url-encoded signed URL>`, `{approver}/#batch=<url-encoded signed URL>` or `{approver}/#notify=<url-encoded signed URL>`. The hub allows CORS from the approver origin on `/api/approver/v1/*`.

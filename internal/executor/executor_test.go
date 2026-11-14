@@ -475,3 +475,107 @@ func TestHoldAndEnableHealth(t *testing.T) {
 		})
 	}
 }
+
+const (
+	listFailed = "systemctl list-units --state=failed --type=service --plain --no-legend --no-pager"
+	typeOf     = "systemctl show -p Type --value "
+)
+
+// failedUnits answers the failed-services list with before, then after.
+func failedUnits(fake *runner.Fake, before, after string) {
+	if fake.Queue == nil {
+		fake.Queue = map[string][]runner.Response{}
+	}
+	fake.Queue[listFailed] = []runner.Response{{Stdout: before}, {Stdout: after}}
+}
+
+func TestServiceFailedAfterChangeFailsHealthAndRollsBack(t *testing.T) {
+	fake := &runner.Fake{Responses: map[string]runner.Response{
+		upgradeArgv:               {Stdout: "Setting up openssl\n"},
+		installArgv:               {Stdout: "ok\n"},
+		dpkgArgv:                  {Stdout: "openssl\t3.0.13-0ubuntu3.4\tamd64\tii \n"},
+		typeOf + "web.service":    {Stdout: "notify\n"},
+		typeOf + "old.service":    {Stdout: "simple\n"},
+		typeOf + "backup.service": {Stdout: "oneshot\n"},
+	}}
+	// Rollback reinstalls 3.0.13-0ubuntu3.1; its health check reads dpkg again.
+	fake.Queue = map[string][]runner.Response{dpkgArgv: {{Stdout: "openssl\t3.0.13-0ubuntu3.4\tamd64\tii \n"}, {Stdout: "openssl\t3.0.13-0ubuntu3.1\tamd64\tii \n"}}}
+	failedUnits(fake, "old.service loaded failed failed Old\n", "old.service loaded failed failed Old\nweb.service loaded failed failed Web server\nbackup.service loaded failed failed Backup\n")
+	x, a := setup(t, fake)
+	x.CheckFailedUnits, x.SettleDelay = true, time.Millisecond
+	env := testkit.Envelope(upgrade, rollback, "2026-11-01T00:00:00Z", 1)
+	out, rec := run(t, x, env, []verify.Approval{a.Approve(env)})
+	if out.Result != ResultRolledBack {
+		t.Fatalf("result = %s; events %v", out.Result, rec.events)
+	}
+	var failed hubclient.Event
+	for _, e := range rec.events {
+		if e["type"] == "health" && e["ok"] == false {
+			failed = e
+		}
+	}
+	if failed["phase"] != "operations" || failed["index"] != 0 || failed["detail"] != "web.service failed after the change (it wasn't failed before)" {
+		t.Fatalf("health = %v", failed)
+	}
+}
+
+func TestPreviouslyFailedServiceDoesNotFailTheChange(t *testing.T) {
+	fake := &runner.Fake{Responses: map[string]runner.Response{
+		upgradeArgv:            {Stdout: "Setting up openssl\n"},
+		dpkgArgv:               {Stdout: "openssl\t3.0.13-0ubuntu3.4\tamd64\tii \n"},
+		typeOf + "old.service": {Stdout: "simple\n"},
+	}}
+	failedUnits(fake, "old.service loaded failed failed Old\n", "old.service loaded failed failed Old\n")
+	x, a := setup(t, fake)
+	x.CheckFailedUnits, x.SettleDelay = true, time.Millisecond
+	env := testkit.Envelope(upgrade, rollback, "2026-11-01T00:00:00Z", 1)
+	out, rec := run(t, x, env, []verify.Approval{a.Approve(env)})
+	if out.Result != ResultSucceeded {
+		t.Fatalf("result = %s; events %v", out.Result, rec.events)
+	}
+	if got := rec.types(); got != "verified,step_started,output,step_finished,health,finished" {
+		t.Fatalf("events = %s", got)
+	}
+}
+
+func TestUnreadableFailedServicesSkipsTheCheck(t *testing.T) {
+	fake := &runner.Fake{Responses: map[string]runner.Response{
+		upgradeArgv: {Stdout: "Setting up openssl\n"},
+		dpkgArgv:    {Stdout: "openssl\t3.0.13-0ubuntu3.4\tamd64\tii \n"},
+		listFailed:  {Stderr: "Failed to connect to bus\n", ExitCode: 1},
+	}}
+	x, a := setup(t, fake)
+	x.CheckFailedUnits, x.SettleDelay = true, time.Millisecond
+	env := testkit.Envelope(upgrade, rollback, "2026-11-01T00:00:00Z", 1)
+	if out, rec := run(t, x, env, []verify.Approval{a.Approve(env)}); out.Result != ResultSucceeded {
+		t.Fatalf("result = %s; events %v", out.Result, rec.events)
+	}
+	n := 0
+	for _, c := range fake.Calls {
+		if strings.Join(c.Argv, " ") == listFailed {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("listed failed services %d times, want once (before only)", n)
+	}
+}
+
+func TestRebootSkipsTheFailedServicesCheck(t *testing.T) {
+	fake := &runner.Fake{Responses: map[string]runner.Response{
+		showAgent:  {Stdout: "Id=bifrost-agent.service\nActiveState=active\nSubState=running\nLoadState=loaded\nUnitFileState=enabled\n"},
+		rebootArgv: {},
+	}}
+	x, a := setup(t, fake)
+	x.CheckFailedUnits, x.SettleDelay = true, time.Millisecond
+	x.State.Root = rebootRoot(t, true)
+	env := testkit.Envelope(reboot, nil, "2026-11-01T00:00:00Z", 1)
+	if out, rec := run(t, x, env, []verify.Approval{a.Approve(env)}); out.Result != ResultSucceeded {
+		t.Fatalf("result = %s; events %v", out.Result, rec.events)
+	}
+	for _, c := range fake.Calls {
+		if strings.Join(c.Argv, " ") == listFailed {
+			t.Fatal("listed failed services for a reboot")
+		}
+	}
+}

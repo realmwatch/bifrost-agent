@@ -404,7 +404,7 @@ func cmdRun(args []string, stderr io.Writer) error {
 	}
 	x := &executor.Executor{
 		Verifier: v, Runner: runner.Exec{}, State: env, PackageManager: env.PackageManager,
-		UseSudo: cfg.Sudo(), Simulate: cfg.Simulate, Log: log,
+		UseSudo: cfg.Sudo(), Simulate: cfg.Simulate, Log: log, CheckFailedUnits: true,
 	}
 	d := &daemon.Daemon{
 		Hub: hubclient.New(hubURL, st.Token, cfg.InsecureSkipTLSVerify), State: env, Catalog: cat,
