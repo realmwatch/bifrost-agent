@@ -3,4 +3,4 @@
 package version
 
 // Version is the agent version, also used as the operations catalog_version.
-var Version = "0.10.0"
+var Version = "0.11.0"
