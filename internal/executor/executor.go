@@ -46,8 +46,14 @@ type Executor struct {
 	UseSudo        bool
 	// Simulate logs each argv and reports success without running it.
 	Simulate bool
-	Log      *slog.Logger
-	Now      func() time.Time
+	// CheckFailedUnits fails an execution whose operations succeeded but
+	// left a service failed that wasn't failed before they ran.
+	CheckFailedUnits bool
+	// SettleDelay is how long to wait after the operations before looking
+	// for newly failed services; default 5s.
+	SettleDelay time.Duration
+	Log         *slog.Logger
+	Now         func() time.Time
 
 	FlushInterval  time.Duration // default 1s
 	HealthAttempts int           // default 10
@@ -88,6 +94,9 @@ func (x *Executor) defaults() {
 	}
 	if x.SinkAttempts == 0 {
 		x.SinkAttempts = 150
+	}
+	if x.SettleDelay == 0 {
+		x.SettleDelay = 5 * time.Second
 	}
 }
 
@@ -153,8 +162,13 @@ func (x *Executor) Execute(ctx context.Context, executionID string, raw []byte, 
 		}
 	}()
 
+	failedBefore, checkUnits := x.failedUnitsBefore(ctx, env.Operations, log)
 	result := ResultSucceeded
-	if !x.runSteps(ctx, s, PhaseOperations, env.Operations, log) {
+	ok := x.runSteps(ctx, s, PhaseOperations, env.Operations, log)
+	if ok && checkUnits {
+		ok = x.checkFailedUnits(ctx, s, len(env.Operations)-1, failedBefore, log)
+	}
+	if !ok {
 		result = ResultFailed
 		if len(env.Rollback) > 0 {
 			log.Warn("operation failed; rolling back")
@@ -305,6 +319,64 @@ func (x *Executor) health(ctx context.Context, def *catalog.Definition, step ver
 		return x.rebootScheduled()
 	}
 	return false, fmt.Sprintf("unknown health check %q", def.Health.Check)
+}
+
+// failedUnitsBefore lists the failed services before the operations run,
+// and reports whether to look again afterwards: not in simulation, not
+// for an envelope that reboots or replaces the agent (the agent isn't
+// there afterwards to look), and not if the list can't be read.
+func (x *Executor) failedUnitsBefore(ctx context.Context, ops []verify.Step, log *slog.Logger) (map[string]bool, bool) {
+	if !x.CheckFailedUnits || x.Simulate || len(ops) == 0 {
+		return nil, false
+	}
+	for _, step := range ops {
+		if def, ok := x.Verifier.Catalog.Get(step.Op, step.Version); ok && (def.Reboots || def.RestartsAgent) {
+			return nil, false
+		}
+	}
+	units, err := x.State.FailedUnits(ctx)
+	if err != nil {
+		log.Warn("can't list failed services; not checking for new ones after the change", "err", err)
+		return nil, false
+	}
+	before := map[string]bool{}
+	for _, u := range units {
+		before[u] = true
+	}
+	return before, true
+}
+
+// checkFailedUnits waits for services to settle, then fails the last
+// operation's health if a service is failed now that wasn't before. The
+// operations themselves exited 0, but something they restarted (directly,
+// or through needrestart after an upgrade) didn't come back.
+func (x *Executor) checkFailedUnits(ctx context.Context, s *stream, last int, before map[string]bool, log *slog.Logger) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	case <-time.After(x.SettleDelay):
+	}
+	units, err := x.State.FailedUnits(ctx)
+	if err != nil {
+		log.Warn("can't list failed services after the change; not checking", "err", err)
+		return true
+	}
+	var newly []string
+	for _, u := range units {
+		if !before[u] {
+			newly = append(newly, u)
+		}
+	}
+	if len(newly) == 0 {
+		return true
+	}
+	detail := strings.Join(newly, ", ") + " failed after the change (it wasn't failed before)"
+	if len(newly) > 1 {
+		detail = strings.Join(newly, ", ") + " failed after the change (they weren't failed before)"
+	}
+	s.emit("health", map[string]any{"phase": PhaseOperations, "index": last, "ok": false, "detail": detail})
+	log.Warn("services failed after the change", "units", newly)
+	return false
 }
 
 // beforeReboot checks the agent will come back after a reboot (its unit

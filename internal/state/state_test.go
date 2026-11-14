@@ -420,3 +420,11 @@ func TestStderrTailIsCappedAndValidUTF8(t *testing.T) {
 		t.Fatalf("len = %d, valid = %v", len(tail), utf8.ValidString(tail))
 	}
 }
+
+func TestParseFailedUnits(t *testing.T) {
+	out := "● web.service loaded failed failed Web server\napi.service    loaded failed failed API\nweb.service loaded failed failed dup\nfoo.socket loaded failed failed Socket\n\n"
+	got := ParseFailedUnits(out)
+	if strings.Join(got, ",") != "api.service,web.service" {
+		t.Fatalf("units = %v", got)
+	}
+}
