@@ -248,3 +248,27 @@ func toolReleaseLeftovers(ctx context.Context, e *Env, _ map[string]any) (any, e
 	}
 	return report, nil
 }
+
+// toolPHPSites reports the host's PHP versions and, for each site nginx
+// serves with PHP, its FPM version, repository, composer.json PHP
+// constraints and the cron, supervisor and systemd files that run PHP for
+// it. The agent's own helper gathers it as root (users' crontabs are
+// private).
+func toolPHPSites(ctx context.Context, e *Env, _ map[string]any) (any, error) {
+	if err := e.requirePM(); err != nil {
+		return nil, err
+	}
+	argv, ok := catalog.PrivilegedReads["php_sites"][e.PackageManager]
+	if !ok {
+		return nil, fmt.Errorf("php_sites is only supported on apt hosts")
+	}
+	out, err := e.runOK(ctx, e.privileged(argv)...)
+	if err != nil {
+		return nil, err
+	}
+	var report map[string]any
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		return nil, fmt.Errorf("reading the PHP sites report: %w", err)
+	}
+	return report, nil
+}

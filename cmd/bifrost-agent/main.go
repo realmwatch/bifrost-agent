@@ -137,24 +137,42 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-// cmdPHP runs the php.remove and php.restore operations through sudo.
+// cmdPHP runs the PHP operations through sudo: php.remove, php.restore,
+// php.install and php.switch_site, and the php_sites report.
 func cmdPHP(args []string, stdout io.Writer) error {
-	valid := len(args) >= 2 && ((args[0] == "remove" && len(args) == 2) || (args[0] == "restore" && len(args) <= 3))
+	n := len(args)
+	valid := n >= 1 && (args[0] == "sites" && n == 1 ||
+		args[0] == "remove" && n == 2 ||
+		args[0] == "restore" && (n == 2 || n == 3) ||
+		args[0] == "install" && n == 3 ||
+		args[0] == "switch" && n == 4)
 	if !valid {
-		return usageError{"usage: bifrost-agent php remove VERSION | php restore VERSION [BACKUP]"}
+		return usageError{"usage: bifrost-agent php sites | remove VERSION | restore VERSION [BACKUP] | install VERSION LIKE | switch ROOT FROM TO"}
 	}
 	if os.Geteuid() != 0 {
-		return errors.New("php remove and restore must run as root")
+		return errors.New("php " + args[0] + " must run as root")
 	}
 	e := &phpops.Env{Runner: runner.Exec{}, Now: time.Now, Out: stdout}
-	if args[0] == "remove" {
-		return e.Remove(context.Background(), args[1])
+	ctx := context.Background()
+	switch args[0] {
+	case "sites":
+		r, err := e.Sites(ctx)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(r)
+	case "remove":
+		return e.Remove(ctx, args[1])
+	case "install":
+		return e.Install(ctx, args[1], args[2])
+	case "switch":
+		return e.Switch(ctx, args[1], args[2], args[3])
 	}
 	backup := ""
-	if len(args) == 3 {
+	if n == 3 {
 		backup = args[2]
 	}
-	return e.Restore(context.Background(), args[1], backup)
+	return e.Restore(ctx, args[1], backup)
 }
 
 // cmdKernel runs kernel.remove through sudo, and its dry run as any user.

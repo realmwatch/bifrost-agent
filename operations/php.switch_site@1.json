@@ -1,0 +1,68 @@
+{
+  "name": "php.switch_site",
+  "version": 1,
+  "description": "Move one site from one PHP version to another: in only that site's nginx server blocks the FPM socket changes, then nginx -t and a reload; in cron, supervisor and systemd lines that name the site's root, the PHP binary (that version, or a bare php) becomes the new one, then supervisor and the changed units are reloaded. The host-wide php alternative is never touched. Every file is backed up under /var/backups/php-switch first, keeping mode and owner. A smoke check asks nginx on the host for the site (no 5xx) and reads the new FPM's log for errors; on any failure every file is put back. It refuses unless the root is a directory an enabled vhost serves with the old FPM and the new FPM is running, and does nothing for a site already moved.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "root",
+      "from",
+      "to"
+    ],
+    "properties": {
+      "root": {
+        "type": "string",
+        "description": "The site's root, the directory above public/, such as /home/forge/example.com.",
+        "pattern": "^/[A-Za-z0-9._/-]+$",
+        "maxLength": 255
+      },
+      "from": {
+        "type": "string",
+        "description": "The PHP version the site runs on now.",
+        "pattern": "^[0-9]+\\.[0-9]+$",
+        "maxLength": 16
+      },
+      "to": {
+        "type": "string",
+        "description": "The PHP version to move it to, already installed and running.",
+        "pattern": "^[0-9]+\\.[0-9]+$",
+        "maxLength": 16
+      }
+    }
+  },
+  "rollback": "php.switch_site",
+  "irreversible": false,
+  "health_check": "The helper puts every file back unless nginx -t, the reloads and the smoke check pass.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "switch",
+        "{root}",
+        "{from}",
+        "{to}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "switch",
+        "{root}",
+        "{from}",
+        "{to}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent php switch * * *",
+      "dnf": "/usr/local/bin/bifrost-agent php switch * * *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

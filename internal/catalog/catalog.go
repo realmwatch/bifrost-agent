@@ -49,6 +49,11 @@ var PrivilegedReads = map[string]map[string][]string{
 	"release_leftovers": {
 		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "release", "leftovers"},
 	},
+	// php_sites reads every site's vhost, .git/config, composer.json and
+	// the users' crontabs, which needs root.
+	"php_sites": {
+		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "php", "sites"},
+	},
 }
 
 // healthCheck describes a health check implemented in Go: the templated
