@@ -184,6 +184,7 @@ func init() {
 	register("boot", noArgs, toolBoot)
 	register("services_needing_restart", noArgs, toolServicesNeedingRestart)
 	register("release_leftovers", noArgs, toolReleaseLeftovers)
+	register("php_sites", noArgs, toolPHPSites)
 }
 
 // ToolNames lists the tools, sorted.

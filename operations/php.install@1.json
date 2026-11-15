@@ -1,0 +1,58 @@
+{
+  "name": "php.install",
+  "version": 1,
+  "description": "Install one PHP version alongside another on an apt host, without switching anything to it: its FPM and CLI plus the counterpart of every installed package of the version it copies (extensions built into the new version are skipped). It refuses if the new FPM is already installed, apt has no package for one of them, the install would remove anything, or a pool of the old version listens on a TCP port. It puts back any PHP alternative (php, phar, php-config, phpize) the install moved, backs up the new version's packaged pools under /var/backups/php-install, ports the old version's FPM pools (socket names renamed) and its own conf.d files, writes the tuned php.ini settings that differ into conf.d/99-bifrost-ported.ini, checks the config and starts the new FPM.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "version",
+      "like"
+    ],
+    "properties": {
+      "version": {
+        "type": "string",
+        "description": "The PHP version to install, such as 8.3.",
+        "pattern": "^[0-9]+\\.[0-9]+$",
+        "maxLength": 16
+      },
+      "like": {
+        "type": "string",
+        "description": "The installed PHP version to copy extensions and pools from, such as 8.1.",
+        "pattern": "^[0-9]+\\.[0-9]+$",
+        "maxLength": 16
+      }
+    }
+  },
+  "irreversible": false,
+  "health_check": "The helper checks the new FPM's config and that its service is active.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "install",
+        "{version}",
+        "{like}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "install",
+        "{version}",
+        "{like}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent php install * *",
+      "dnf": "/usr/local/bin/bifrost-agent php install * *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

@@ -25,10 +25,14 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl start *
 bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl stop *
 # kernel.remove@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent kernel remove *
+# php.install@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php install * *
 # php.remove@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php remove *
 # php.restore@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php restore *
+# php.switch_site@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php switch * * *
 # apt.source.disable@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release disable *
 # packages.remove_obsolete@1
@@ -55,6 +59,8 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/apt-get -q update
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-mark hold *
 # package.unhold@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-mark unhold *
+# state tool php_sites (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php sites
 # state tool release_leftovers (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release leftovers
 # state tool services_needing_restart (read-only)
