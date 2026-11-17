@@ -20,7 +20,8 @@
 # It also keeps a copy of itself, root-owned, at
 # /usr/local/lib/bifrost-agent/install.sh. The agent's agent.upgrade operation
 # runs that copy through one sudo rule, `--self-upgrade vX.Y.Z`: see below.
-# collector.upgrade uses it the same way, with `--upgrade-collector vX.Y.Z`.
+# collector.upgrade uses it the same way, with
+# `--upgrade-collector vX.Y.Z [features]` (features: what to turn on, below).
 set -eu
 umask 022
 export LC_ALL=C
@@ -194,31 +195,88 @@ apply_staged() {
 }
 
 # ── Collector upgrades ──
-# `--upgrade-collector vX.Y.Z` runs as root from the agent, with only a version
+# `--upgrade-collector vX.Y.Z [features]` runs as root from the agent, with
+# only a version, and a comma-separated list of collector reports to turn on,
 # from the hub. Heimdall's collector has its own signed upgrade, but a sudo
 # rule for it could add --skip-signature-check, and it allows a downgrade when
 # given a version. So this takes one strictly checked version, refuses to go
 # backwards, and runs the collector only if nobody but root can have changed it.
+#
+# Features, each with its collector option, the first release whose upgrade
+# takes it, and the collect.env setting that shows it's on:
+#   tripwires        --tripwires              0.5.34  HEIMDALL_TRIPWIRES=on
+#   logins           --watch-logins           0.4.24  HEIMDALL_LOGIN_WATCH=on
+#   privilege-users  --watch-privilege-users  0.4.23  HEIMDALL_PRIVILEGE_WATCH=users
+# The installed collector parses `upgrade`'s options, and an older one refuses
+# options it doesn't know. So an upgrade comes first, on its own, and the
+# features are turned on after it by the new collector, re-installing the
+# same release. With features, the target may be the installed version.
 COLLECTOR=/usr/local/bin/heimdall-collect
 
 collector_version() {
 	sed -n 's/^VERSION=\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' "$COLLECTOR" | head -n 1
 }
 
-upgrade_collector() {
-	printf '%s\n' "$version" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+' || die "bad version $version"
+# at_least A B: version A is B or later.
+at_least() {
+	[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" = "$2" ]
+}
+
+# collector_setting NAME: NAME's value in the collector's collect.env.
+collector_setting() {
+	for f in /etc/heimdall/collect.env /etc/heimdall-collect/collect.env; do
+		if [ -r "$f" ]; then
+			sed -n "s/^$1=//p" "$f" | tail -n 1 | sed "s/^'\(.*\)'\$/\1/"
+			return 0
+		fi
+	done
+}
+
+run_collector() {
 	[ -f "$COLLECTOR" ] && [ ! -L "$COLLECTOR" ] || die "no Heimdall collector at $COLLECTOR"
 	[ -n "$(find "$COLLECTOR" -maxdepth 0 -user root ! -perm /022)" ] ||
 		die "$COLLECTOR isn't owned and writable only by root; not running it as root"
+	"$COLLECTOR" "$@"
+}
+
+upgrade_collector() {
+	printf '%s\n' "$version" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+' || die "bad version $version"
+	target=${version#v}
+	options='' checks=''
+	if [ -n "$features" ]; then
+		printf '%s\n' "$features" | grep -Eqx '[a-z-]+(,[a-z-]+){0,2}' || die "bad features $features"
+		for feature in $(printf '%s\n' "$features" | tr , ' '); do
+			case $feature in
+			tripwires) option=--tripwires since=0.5.34 check=HEIMDALL_TRIPWIRES=on ;;
+			logins) option=--watch-logins since=0.4.24 check=HEIMDALL_LOGIN_WATCH=on ;;
+			privilege-users) option=--watch-privilege-users since=0.4.23 check=HEIMDALL_PRIVILEGE_WATCH=users ;;
+			*) die "unknown collector feature $feature" ;;
+			esac
+			case " $options " in *" $option "*) die "$feature is listed twice" ;; esac
+			at_least "$target" "$since" || die "$feature needs collector v$since or later, not $version"
+			options="$options $option" checks="$checks $check"
+		done
+	fi
+	[ -f "$COLLECTOR" ] || die "no Heimdall collector at $COLLECTOR"
 	current=$(collector_version)
 	[ -n "$current" ] || die "can't read the installed collector's version"
-	[ "$current" != "${version#v}" ] || die "the collector is already at $version"
-	newest=$(printf '%s\n%s\n' "$current" "${version#v}" | sort -V | tail -n 1)
-	[ "$newest" = "${version#v}" ] || die "refusing to downgrade the collector from $current to $version"
-	"$COLLECTOR" upgrade "$version" || die "the collector's upgrade to $version failed"
+	at_least "$target" "$current" || die "refusing to downgrade the collector from $current to $version"
+	[ "$current" != "$target" ] || [ -n "$options" ] || die "the collector is already at $version"
+	if [ "$current" != "$target" ]; then
+		run_collector upgrade "$version" || die "the collector's upgrade to $version failed"
+		installed=$(collector_version)
+		[ "$installed" = "$target" ] || die "after the upgrade the collector reports ${installed:-no version}, not $version"
+		say "Heimdall collector $installed is installed"
+	fi
+	[ -n "$options" ] || return 0
+	# shellcheck disable=SC2086 # options are fixed words from the table above
+	run_collector upgrade "$version" $options || die "turning on $features in the collector failed"
 	installed=$(collector_version)
-	[ "$installed" = "${version#v}" ] || die "after the upgrade the collector reports ${installed:-no version}, not $version"
-	say "Heimdall collector $installed is installed"
+	[ "$installed" = "$target" ] || die "after turning on $features the collector reports ${installed:-no version}, not $version"
+	for check in $checks; do
+		[ "$(collector_setting "${check%%=*}")" = "${check#*=}" ] || die "after turning on $features, collect.env doesn't have $check"
+	done
+	say "Heimdall collector $installed has $features on"
 }
 
 usage() {
@@ -244,7 +302,7 @@ EOF
 	exit 2
 }
 
-hub='' enroll='' key='' keys_file='' keys_b64='' version=$AGENT_VERSION from_dir='' sigcheck=1
+hub='' enroll='' key='' keys_file='' keys_b64='' version=$AGENT_VERSION from_dir='' sigcheck=1 features=''
 mode=install
 case ${1:-} in
 --self-upgrade)
@@ -253,8 +311,8 @@ case ${1:-} in
 	set --
 	;;
 --upgrade-collector)
-	[ $# -eq 2 ] || die "--upgrade-collector takes exactly one version"
-	mode=upgrade-collector version=$2
+	[ $# -eq 2 ] || [ $# -eq 3 ] || die "--upgrade-collector takes a version, then optionally the features to turn on"
+	mode=upgrade-collector version=$2 features=${3:-}
 	set --
 	;;
 --apply-staged)

@@ -1,7 +1,7 @@
 {
   "name": "collector.upgrade",
   "version": 1,
-  "description": "Upgrade the server's Heimdall collector to a newer signed release, using the collector's own upgrade command. It checks the release's Sigstore signature, keeps the hub URL and token, and refuses a downgrade. There is no automatic rollback: a failed upgrade can stop the server's reports to Heimdall until someone runs it again.",
+  "description": "Upgrade the server's Heimdall collector to a newer signed release, using the collector's own upgrade command, and optionally turn on its tripwire reports, login watch or privilege watch (even when it's already up to date). It checks the release's Sigstore signature, keeps the hub URL and token, and refuses a downgrade. There is no automatic rollback: a failed upgrade can stop the server's reports to Heimdall until someone runs it again.",
   "min_tier": "high",
   "params": {
     "type": "object",
@@ -12,6 +12,12 @@
         "type": "string",
         "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
         "maxLength": 32
+      },
+      "turn_on": {
+        "type": "string",
+        "description": "Collector reports to turn on, comma-separated, in heimdall-collect upgrade after any upgrade: tripwires (--tripwires, collector v0.5.34 or later), logins (--watch-logins, failed SSH login counts), privilege-users (--watch-privilege-users: privilege use, such as su or a root SSH login, with who and from where). With turn_on, version may be the installed version. Left out, the server keeps its current choices.",
+        "pattern": "^(tripwires|logins|privilege-users)(,(tripwires|logins|privilege-users)){0,2}$",
+        "maxLength": 40
       }
     }
   },
@@ -22,8 +28,8 @@
   "agent": {
     "privileged": true,
     "argv": {
-      "apt": ["/usr/local/lib/bifrost-agent/install.sh", "--upgrade-collector", "{version}"],
-      "dnf": ["/usr/local/lib/bifrost-agent/install.sh", "--upgrade-collector", "{version}"]
+      "apt": ["/usr/local/lib/bifrost-agent/install.sh", "--upgrade-collector", "{version}", "{turn_on?}"],
+      "dnf": ["/usr/local/lib/bifrost-agent/install.sh", "--upgrade-collector", "{version}", "{turn_on?}"]
     },
     "sudo": {
       "apt": "/usr/local/lib/bifrost-agent/install.sh --upgrade-collector *",
