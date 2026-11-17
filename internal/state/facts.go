@@ -30,6 +30,9 @@ type Facts struct {
 	RebootRequired string `json:"reboot_required,omitempty"`
 	// CollectorVersion is the Heimdall collector installed here, if any.
 	CollectorVersion string `json:"collector_version,omitempty"`
+	// CollectorSettings says which of the collector's optional reports are
+	// on: privilege_watch, login_watch and tripwires (agent v0.13.0).
+	CollectorSettings map[string]string `json:"collector_settings,omitempty"`
 }
 
 // ParseOSRelease parses os-release(5) content.
@@ -118,6 +121,7 @@ func (e *Env) Facts() Facts {
 	f.UptimeSeconds, _ = e.Uptime()
 	f.BootID, _ = e.BootID()
 	f.CollectorVersion = e.CollectorVersion()
+	f.CollectorSettings = e.CollectorSettings()
 	if e.PackageManager == catalog.PackageManagerApt {
 		f.RebootRequired = "no"
 		if _, err := os.Stat(e.Path("/run/reboot-required")); err == nil {

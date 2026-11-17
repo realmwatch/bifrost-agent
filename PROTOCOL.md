@@ -49,13 +49,16 @@ Creating an enrollment key in the hub shows the commands that use it: one line t
     "package_manager": "apt",
     "boot_id": "8a1c2f3e-...",
     "reboot_required": "no",
-    "collector_version": "0.5.5"
+    "collector_version": "0.5.34",
+    "collector_settings": {"privilege_watch": "users", "login_watch": "on", "tripwires": "off"}
   },
   "trusted_keys_serial": 3
 }
 ```
 
-`boot_id` changes on every boot; the hub uses it to check a reboot happened. `reboot_required` is `"yes"` or `"no"` on apt systems (`/run/reboot-required`) and left out elsewhere. Agents before v0.3.0 leave both out. `collector_version` is the Heimdall collector installed on the server (agent v0.5.0), left out when there is none.
+`boot_id` changes on every boot; the hub uses it to check a reboot happened. `reboot_required` is `"yes"` or `"no"` on apt systems (`/run/reboot-required`) and left out elsewhere. Agents before v0.3.0 leave both out. `collector_version` is the Heimdall collector installed on the server (agent v0.5.0), left out when there is none. `collector_settings` (v0.13.0) says which of its optional reports are on, read from its `collect.env`: `privilege_watch` is `on`, `users` or `off`, and `login_watch` and `tripwires` are `on` or `off` (a setting the file lacks is `off`). It's left out with no collector or no `collect.env`.
+
+**Turning on collector reports (v0.13.0).** `collector.upgrade@1` takes an optional `turn_on`, a comma-separated list of `tripwires` (collector v0.5.34 or later), `logins` and `privilege-users`. The agent's helper upgrades the collector first, on its own, then runs the new collector's `upgrade` again with `--tripwires`, `--watch-logins` or `--watch-privilege-users`, because an older collector refuses options it doesn't know. With `turn_on`, `version` may be the installed version, so a collector that's already current can turn reports on. It checks `collect.env` shows each one on afterwards. Agents before v0.13.0 refuse `turn_on`.
 
 `trusted_keys_serial` is the `serial` of the key set the agent trusts now (see [Trusted keys](#trusted-keys)), `0` for a file without one. Agents before v0.2.0 leave it out.
 

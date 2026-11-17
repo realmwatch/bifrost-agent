@@ -325,12 +325,45 @@ func TestCollectorVersion(t *testing.T) {
 	}
 }
 
+func TestCollectorSettings(t *testing.T) {
+	e := testEnv(t, "apt", &runner.Fake{})
+	write := func(p, content string) {
+		t.Helper()
+		path := filepath.Join(e.Root, p)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("etc/heimdall/collect.env", "HEIMDALL_TRIPWIRES=on\n")
+	if got := e.CollectorSettings(); got != nil {
+		t.Fatalf("no collector: got %v", got)
+	}
+	write("usr/local/bin/heimdall-collect", "#!/bin/sh\nVERSION=0.5.34\n")
+	if got := e.CollectorSettings(); !reflect.DeepEqual(got, map[string]string{"privilege_watch": "off", "login_watch": "off", "tripwires": "on"}) {
+		t.Errorf("tripwires only: got %v", got)
+	}
+	write("etc/heimdall/collect.env", "HEIMDALL_URL='https://heimdall.example.com'\nHEIMDALL_PRIVILEGE_WATCH='users'\nHEIMDALL_LOGIN_WATCH=on\nHEIMDALL_TRIPWIRES=users\nHEIMDALL_LOGIN_WATCH=$(evil)\n")
+	want := map[string]string{"privilege_watch": "users", "login_watch": "on", "tripwires": "off"}
+	if got := e.Facts().CollectorSettings; !reflect.DeepEqual(got, want) {
+		t.Errorf("facts: got %v, want %v", got, want)
+	}
+	if err := os.Remove(filepath.Join(e.Root, "etc/heimdall/collect.env")); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.CollectorSettings(); got != nil {
+		t.Errorf("no collect.env: got %v", got)
+	}
+}
+
 func TestFactsAndDetect(t *testing.T) {
 	e := testEnv(t, "apt", &runner.Fake{})
 	f := e.Facts()
 	want := Facts{Hostname: "web-01", OS: OSInfo{"ubuntu", "24.04", "Ubuntu 24.04.1 LTS"}, Kernel: "6.8.0-45-generic", UptimeSeconds: 12345, PackageManager: "apt",
 		BootID: "8a1c2f3e-0000-4000-8000-000000000001", RebootRequired: "yes"}
-	if f != want {
+	if !reflect.DeepEqual(f, want) {
 		t.Fatalf("facts = %+v", f)
 	}
 	cases := map[string]string{
