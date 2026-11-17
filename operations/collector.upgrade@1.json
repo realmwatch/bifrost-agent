@@ -1,7 +1,7 @@
 {
   "name": "collector.upgrade",
   "version": 1,
-  "description": "Upgrade the server's Heimdall collector to a newer signed release, using the collector's own upgrade command. It checks the release's Sigstore signature, keeps the hub URL and token, and refuses a downgrade. There is no automatic rollback: a failed upgrade can stop the server's reports to Heimdall until someone runs it again.",
+  "description": "Upgrade the server's Heimdall collector to a newer signed release, using the collector's own upgrade command, and optionally turn on its tripwire reports. It checks the release's Sigstore signature, keeps the hub URL and token, and refuses a downgrade. There is no automatic rollback: a failed upgrade can stop the server's reports to Heimdall until someone runs it again.",
   "min_tier": "high",
   "params": {
     "type": "object",
@@ -12,6 +12,12 @@
         "type": "string",
         "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
         "maxLength": 32
+      },
+      "tripwires": {
+        "type": "string",
+        "description": "on: also turn on the collector's tripwire reports (heimdall-collect upgrade --tripwires; collector v0.5.34 or later). Left out, the server keeps its current choice.",
+        "pattern": "^on$",
+        "maxLength": 2
       }
     }
   },
@@ -22,8 +28,8 @@
   "agent": {
     "privileged": true,
     "argv": {
-      "apt": ["/usr/local/lib/bifrost-agent/install.sh", "--upgrade-collector", "{version}"],
-      "dnf": ["/usr/local/lib/bifrost-agent/install.sh", "--upgrade-collector", "{version}"]
+      "apt": ["/usr/local/lib/bifrost-agent/install.sh", "--upgrade-collector", "{version}", "{tripwires?}"],
+      "dnf": ["/usr/local/lib/bifrost-agent/install.sh", "--upgrade-collector", "{version}", "{tripwires?}"]
     },
     "sudo": {
       "apt": "/usr/local/lib/bifrost-agent/install.sh --upgrade-collector *",

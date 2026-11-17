@@ -20,7 +20,8 @@
 # It also keeps a copy of itself, root-owned, at
 # /usr/local/lib/bifrost-agent/install.sh. The agent's agent.upgrade operation
 # runs that copy through one sudo rule, `--self-upgrade vX.Y.Z`: see below.
-# collector.upgrade uses it the same way, with `--upgrade-collector vX.Y.Z`.
+# collector.upgrade uses it the same way, with `--upgrade-collector vX.Y.Z [on]`
+# (on: also turn on the collector's tripwire reports).
 set -eu
 umask 022
 export LC_ALL=C
@@ -207,6 +208,10 @@ collector_version() {
 
 upgrade_collector() {
 	printf '%s\n' "$version" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+' || die "bad version $version"
+	# The collector's --tripwires (0.5.34 on) also makes its spool.
+	if [ "$tripwires" = on ] && [ "$(printf '0.5.34\n%s\n' "${version#v}" | sort -V | head -n 1)" != 0.5.34 ]; then
+		die "tripwire reports need collector v0.5.34 or later, not $version"
+	fi
 	[ -f "$COLLECTOR" ] && [ ! -L "$COLLECTOR" ] || die "no Heimdall collector at $COLLECTOR"
 	[ -n "$(find "$COLLECTOR" -maxdepth 0 -user root ! -perm /022)" ] ||
 		die "$COLLECTOR isn't owned and writable only by root; not running it as root"
@@ -215,7 +220,11 @@ upgrade_collector() {
 	[ "$current" != "${version#v}" ] || die "the collector is already at $version"
 	newest=$(printf '%s\n%s\n' "$current" "${version#v}" | sort -V | tail -n 1)
 	[ "$newest" = "${version#v}" ] || die "refusing to downgrade the collector from $current to $version"
-	"$COLLECTOR" upgrade "$version" || die "the collector's upgrade to $version failed"
+	if [ "$tripwires" = on ]; then
+		"$COLLECTOR" upgrade "$version" --tripwires || die "the collector's upgrade to $version failed"
+	else
+		"$COLLECTOR" upgrade "$version" || die "the collector's upgrade to $version failed"
+	fi
 	installed=$(collector_version)
 	[ "$installed" = "${version#v}" ] || die "after the upgrade the collector reports ${installed:-no version}, not $version"
 	say "Heimdall collector $installed is installed"
@@ -244,7 +253,7 @@ EOF
 	exit 2
 }
 
-hub='' enroll='' key='' keys_file='' keys_b64='' version=$AGENT_VERSION from_dir='' sigcheck=1
+hub='' enroll='' key='' keys_file='' keys_b64='' version=$AGENT_VERSION from_dir='' sigcheck=1 tripwires=''
 mode=install
 case ${1:-} in
 --self-upgrade)
@@ -253,8 +262,8 @@ case ${1:-} in
 	set --
 	;;
 --upgrade-collector)
-	[ $# -eq 2 ] || die "--upgrade-collector takes exactly one version"
-	mode=upgrade-collector version=$2
+	[ $# -eq 2 ] || { [ $# -eq 3 ] && [ "$3" = on ]; } || die "--upgrade-collector takes a version, then optionally on (tripwire reports)"
+	mode=upgrade-collector version=$2 tripwires=${3:-}
 	set --
 	;;
 --apply-staged)
