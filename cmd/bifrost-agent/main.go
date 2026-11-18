@@ -26,6 +26,7 @@ import (
 	"github.com/realmwatch/bifrost-agent/internal/hubclient"
 	"github.com/realmwatch/bifrost-agent/internal/kernelops"
 	"github.com/realmwatch/bifrost-agent/internal/keystore"
+	"github.com/realmwatch/bifrost-agent/internal/nginxops"
 	"github.com/realmwatch/bifrost-agent/internal/nonce"
 	"github.com/realmwatch/bifrost-agent/internal/phpops"
 	"github.com/realmwatch/bifrost-agent/internal/releaseops"
@@ -68,6 +69,14 @@ Commands:
                        Reinstall a removed PHP version from its backup.
   kernel remove RELEASE...
                        Purge old kernels that aren't running (root, apt).
+  nginx http2-plan | http2-off | http2-restore | check
+                       Turn HTTP/2 off everywhere nginx reads config and back
+                       on, print what that would change, or run nginx -t and
+                       check its default servers (root).
+  nginx source-plan | to-nginx-org | source-restore
+                       Move nginx from the ondrej/nginx PPA to nginx.org's
+                       packages, print what that would change, or put the
+                       apt sources back (root, Ubuntu 22.04+).
   release leftovers | retarget FILE | disable FILE | restore FILE | remove-obsolete PACKAGE...
                        Clean up after an in-place release upgrade (root, apt).
   kernel check RELEASE...
@@ -111,6 +120,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = cmdKernel(rest, stdout)
 	case "release":
 		err = cmdRelease(rest, stdout)
+	case "nginx":
+		err = cmdNginx(rest, stdout)
 	case "help", "-h", "--help":
 		fmt.Fprintf(stdout, usage, strings.Join(state.ToolNames(), ", "))
 		return ExitOK
@@ -135,6 +146,43 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "bifrost-agent:", err)
 		return ExitError
 	}
+}
+
+// cmdNginx runs the nginx operations through sudo: nginx.http2_off,
+// nginx.http2_restore, nginx.check, nginx.source.nginx_org and
+// nginx.source.restore, and the nginx_http2 and nginx_source reports.
+func cmdNginx(args []string, stdout io.Writer) error {
+	if len(args) != 1 || !map[string]bool{"http2-plan": true, "http2-off": true, "http2-restore": true, "check": true, "source-plan": true, "to-nginx-org": true, "source-restore": true}[args[0]] {
+		return usageError{"usage: bifrost-agent nginx http2-plan | http2-off | http2-restore | check | source-plan | to-nginx-org | source-restore"}
+	}
+	if os.Geteuid() != 0 {
+		return errors.New("nginx " + args[0] + " must run as root")
+	}
+	e := &nginxops.Env{Runner: runner.Exec{}, Now: time.Now, Out: stdout}
+	ctx := context.Background()
+	switch args[0] {
+	case "http2-plan":
+		p, err := e.HTTP2Plan()
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(p)
+	case "http2-off":
+		return e.HTTP2Off(ctx)
+	case "http2-restore":
+		return e.HTTP2Restore(ctx)
+	case "source-plan":
+		p, err := e.SourcePlanFor(ctx)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(p)
+	case "to-nginx-org":
+		return e.MoveToNginxOrg(ctx)
+	case "source-restore":
+		return e.RestoreSource(ctx)
+	}
+	return e.Check(ctx)
 }
 
 // cmdPHP runs the PHP operations through sudo: php.remove, php.restore,

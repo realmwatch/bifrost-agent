@@ -1,0 +1,38 @@
+{
+  "name": "nginx.source.restore",
+  "version": 1,
+  "description": "Rollback of nginx.source.nginx_org: put back the apt sources, signing key and pin from its newest backup in /var/backups/nginx-source. While the PPA's nginx is still installed (the upgrade didn't happen) it puts back the nginx configuration too, then nginx -t and a reload. Once nginx.org's nginx is installed, the PPA's package can't be reinstalled (Launchpad removed the PPA), so the configuration stays as that build needs it, and it says so. Does nothing when there's no move to put back.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "rollback": null,
+  "irreversible": false,
+  "health_check": "The helper reports what it put back.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "source-restore"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "source-restore"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent nginx source-restore",
+      "dnf": "/usr/local/bin/bifrost-agent nginx source-restore"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

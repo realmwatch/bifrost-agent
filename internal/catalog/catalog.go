@@ -54,6 +54,16 @@ var PrivilegedReads = map[string]map[string][]string{
 	"php_sites": {
 		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "php", "sites"},
 	},
+	// nginx_http2 reads every file nginx includes and the backups under
+	// /var/backups/nginx-http2, which need root.
+	"nginx_http2": {
+		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "nginx", "http2-plan"},
+		PackageManagerDnf: {"/usr/local/bin/bifrost-agent", "nginx", "http2-plan"},
+	},
+	// nginx_source reads the backups under /var/backups/nginx-source.
+	"nginx_source": {
+		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "nginx", "source-plan"},
+	},
 }
 
 // healthCheck describes a health check implemented in Go: the templated

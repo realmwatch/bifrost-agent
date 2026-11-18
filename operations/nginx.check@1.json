@@ -1,0 +1,38 @@
+{
+  "name": "nginx.check",
+  "version": 1,
+  "description": "Run nginx -t, and warn (without failing) when nginx.org's /etc/nginx/conf.d/default.conf, which its package adds, has become the default server for an address a host site also listens on. Use it after an nginx package upgrade and before restarting nginx, so a broken configuration doesn't take nginx down. Changes nothing.",
+  "min_tier": "low",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "rollback": null,
+  "irreversible": false,
+  "health_check": "nginx -t passes.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "check"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "check"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent nginx check",
+      "dnf": "/usr/local/bin/bifrost-agent nginx check"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

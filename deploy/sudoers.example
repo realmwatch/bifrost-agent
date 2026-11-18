@@ -25,6 +25,16 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl start *
 bifrost ALL=(root) NOPASSWD: /usr/bin/systemctl stop *
 # kernel.remove@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent kernel remove *
+# nginx.check@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx check
+# nginx.http2_off@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx http2-off
+# nginx.http2_restore@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx http2-restore
+# nginx.source.restore@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx source-restore
+# nginx.source.nginx_org@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx to-nginx-org
 # php.install@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php install * *
 # php.remove@1
@@ -59,6 +69,10 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/apt-get -q update
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-mark hold *
 # package.unhold@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/apt-mark unhold *
+# state tool nginx_http2 (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx http2-plan
+# state tool nginx_source (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx source-plan
 # state tool php_sites (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php sites
 # state tool release_leftovers (read-only)
@@ -79,3 +93,5 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -y upgrade *
 bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -y versionlock add *
 # package.unhold@1
 bifrost ALL=(root) NOPASSWD: /usr/bin/dnf -y versionlock delete *
+# state tool nginx_http2 (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx http2-plan
