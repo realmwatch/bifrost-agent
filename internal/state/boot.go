@@ -272,3 +272,47 @@ func toolPHPSites(ctx context.Context, e *Env, _ map[string]any) (any, error) {
 	}
 	return report, nil
 }
+
+// toolNginxHTTP2 reports what turning nginx's HTTP/2 off would change,
+// line by line, and the earlier changes that turning it back on would put
+// back. The agent's own helper reads nginx's configuration as root, the
+// way nginx does, from nginx.conf through every include.
+func toolNginxHTTP2(ctx context.Context, e *Env, _ map[string]any) (any, error) {
+	if err := e.requirePM(); err != nil {
+		return nil, err
+	}
+	argv, ok := catalog.PrivilegedReads["nginx_http2"][e.PackageManager]
+	if !ok {
+		return nil, fmt.Errorf("nginx_http2 isn't supported with %s", e.PackageManager)
+	}
+	out, err := e.runOK(ctx, e.privileged(argv)...)
+	if err != nil {
+		return nil, err
+	}
+	var report map[string]any
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		return nil, fmt.Errorf("reading the nginx HTTP/2 report: %w", err)
+	}
+	return report, nil
+}
+
+// toolNginxSource reports what moving nginx from the ondrej/nginx PPA to
+// nginx.org's packages would change, or why it would refuse.
+func toolNginxSource(ctx context.Context, e *Env, _ map[string]any) (any, error) {
+	if err := e.requirePM(); err != nil {
+		return nil, err
+	}
+	argv, ok := catalog.PrivilegedReads["nginx_source"][e.PackageManager]
+	if !ok {
+		return nil, fmt.Errorf("nginx_source is only supported on apt hosts")
+	}
+	out, err := e.runOK(ctx, e.privileged(argv)...)
+	if err != nil {
+		return nil, err
+	}
+	var report map[string]any
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		return nil, fmt.Errorf("reading the nginx source report: %w", err)
+	}
+	return report, nil
+}

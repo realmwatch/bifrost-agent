@@ -1,0 +1,50 @@
+{
+  "name": "nginx.http2_restore",
+  "version": 1,
+  "description": "Turn HTTP/2 back on where nginx.http2_off turned it off, once nginx is fixed: put back exactly the lines each earlier nginx.http2_off changed (newest first), then nginx -t and a reload. It refuses, changing nothing, if any of those lines has changed since. If nginx -t or the reload fails, every file is put back as it was. Does nothing when there's no change to put back. The dry run (and the nginx_http2 state tool) lists what it would put back.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "rollback": "nginx.http2_off",
+  "irreversible": false,
+  "health_check": "nginx -t and the reload pass; otherwise every file is put back.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "http2-restore"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "http2-restore"
+      ]
+    },
+    "dry_run_argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "http2-plan"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "http2-plan"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent nginx http2-restore",
+      "dnf": "/usr/local/bin/bifrost-agent nginx http2-restore"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

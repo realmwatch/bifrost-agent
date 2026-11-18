@@ -1,0 +1,50 @@
+{
+  "name": "nginx.source.nginx_org",
+  "version": 1,
+  "description": "Move nginx from Ondřej Surý's ondrej/nginx PPA, which Launchpad removed, to nginx.org's mainline packages, on Ubuntu 22.04 or later. It refuses unless the installed nginx is the PPA's build (its version has deb.sury.org) and nginx -t passes. It backs up everything it touches under /var/backups/nginx-source, then: removes the load_module lines for modules nginx.org doesn't ship (brotli, geoip, image-filter, xslt, ssl-ct) from nginx.conf and modules-enabled, and runs nginx -t with the current nginx; removes /etc/apt/sources.list.d/ondrej-ubuntu-nginx-* (and any other sources file naming the PPA); installs nginx.org's signing key (compiled into the agent) to /usr/share/keyrings/nginx-archive-keyring.gpg, its mainline source and a pin (Pin: origin nginx.org, Pin: release o=nginx, priority 900) in /etc/apt/preferences.d/99nginx; refreshes nginx.org's list only and simulates the upgrade. If any of that fails, every file is put back and nothing else changes. Then apt-get install --only-upgrade -o Dpkg::Options::=--force-confold nginx, removing modules-enabled links the upgrade left dangling, nginx -t and a restart. It warns when nginx.org's conf.d/default.conf has become a port's default server. The PPA's package can't be reinstalled afterwards. The dry run (and the nginx_source state tool) lists what will change.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "rollback": "nginx.source.restore",
+  "irreversible": false,
+  "health_check": "The helper checks that dpkg reports nginx.org's build, nginx -t passes and nginx restarted.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "to-nginx-org"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "to-nginx-org"
+      ]
+    },
+    "dry_run_argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "source-plan"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "source-plan"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent nginx to-nginx-org",
+      "dnf": "/usr/local/bin/bifrost-agent nginx to-nginx-org"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

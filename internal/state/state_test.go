@@ -196,10 +196,11 @@ func asJSON(t *testing.T, v any) string {
 func TestRunTool(t *testing.T) {
 	fake := &runner.Fake{Responses: map[string]runner.Response{
 		"dpkg-query -W -f ${Package}\t${Version}\t${Architecture}\t${db:Status-Abbrev}\n": {Stdout: dpkgFixture},
-		"apt list --upgradable":         {Stdout: aptListFixture, Stderr: "WARNING: apt does not have a stable CLI interface."},
-		"apt-mark showhold":             {Stdout: "curl\n"},
-		"/usr/bin/apt-get -q update":    {Stdout: "Hit:1 http://archive.example.com noble InRelease\n"},
-		"/usr/sbin/needrestart -b -r l": {Stdout: "NEEDRESTART-VER: 3.6\nNEEDRESTART-KSTA: 1\nNEEDRESTART-SVC: nginx.service\nNEEDRESTART-SVC: php8.3-fpm.service\n"},
+		"apt list --upgradable":                         {Stdout: aptListFixture, Stderr: "WARNING: apt does not have a stable CLI interface."},
+		"apt-mark showhold":                             {Stdout: "curl\n"},
+		"/usr/bin/apt-get -q update":                    {Stdout: "Hit:1 http://archive.example.com noble InRelease\n"},
+		"/usr/local/bin/bifrost-agent nginx http2-plan": {Stdout: `{"changes":[{"file":"/etc/nginx/sites-enabled/a","line":3,"before":"listen 443 ssl http2;","after":"listen 443 ssl;"}],"files_read":3,"skipped_includes":[],"restorable":[]}` + "\n"},
+		"/usr/sbin/needrestart -b -r l":                 {Stdout: "NEEDRESTART-VER: 3.6\nNEEDRESTART-KSTA: 1\nNEEDRESTART-SVC: nginx.service\nNEEDRESTART-SVC: php8.3-fpm.service\n"},
 		"systemctl show nginx.service --no-pager -p Id -p ActiveState -p SubState -p LoadState -p UnitFileState -p ActiveEnterTimestamp": {Stdout: systemctlFixture},
 		"journalctl -u nginx.service -n 20 -o short-iso --no-pager -q":                                                                   {Stdout: journalFixture},
 		"journalctl -u nginx.service -n 100 -o short-iso --no-pager -q":                                                                  {Stdout: ""},
@@ -226,6 +227,8 @@ func TestRunTool(t *testing.T) {
 		{"boot", `{}`, `"boot_id":"8a1c2f3e-0000-4000-8000-000000000001"`, ""},
 		{"boot", `{}`, `"reboot_required":true,"reboot_required_by":["linux-image-6.8.0-50-generic"]`, ""},
 		{"boot", `{}`, `"scheduled_shutdown":{"at":"2023-11-14T22:13:20Z","mode":"reboot"}`, ""},
+		{"nginx_http2", `{}`, `"after":"listen 443 ssl;"`, ""},
+		{"nginx_http2", `{"x":1}`, "", "bad args"},
 		{"services_needing_restart", `{}`, `{"services":["nginx.service","php8.3-fpm.service"]}`, ""},
 		{"service_status", `{"unit":"nginx.service"}`, `"active_state":"active"`, ""},
 		{"service_status", `{"unit":"nginx"}`, "", "bad args"},
@@ -385,7 +388,7 @@ func TestFactsAndDetect(t *testing.T) {
 }
 
 func TestToolNames(t *testing.T) {
-	want := []string{"boot", "disk", "journal", "memory", "os", "packages", "pending_updates", "php_sites", "ports", "release_leftovers", "service_status", "services_needing_restart", "sessions"}
+	want := []string{"boot", "disk", "journal", "memory", "nginx_http2", "nginx_source", "os", "packages", "pending_updates", "php_sites", "ports", "release_leftovers", "service_status", "services_needing_restart", "sessions"}
 	if got := ToolNames(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tools = %v", got)
 	}

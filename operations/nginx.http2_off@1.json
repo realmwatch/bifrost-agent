@@ -1,0 +1,50 @@
+{
+  "name": "nginx.http2_off",
+  "version": 1,
+  "description": "Turn HTTP/2 off everywhere nginx reads config, as a stopgap until a fixed nginx is installed: nginx.conf and every file it includes (sites-enabled, conf.d, snippets), in place. It removes the http2 flag from every listen in an http server (the flag turns HTTP/2 on for the whole address and port, so one left on turns it back on for every server there) and changes http2 on to http2 off in http{} and each server. QUIC (HTTP/3) listens are left alone. Each changed file is backed up under /var/backups/nginx-http2 first, keeping mode and owner, with the exact lines changed; then nginx -t and a reload. If either fails, every file is put back and nginx reloaded as it was. Does nothing when HTTP/2 is already off. The dry run (and the nginx_http2 state tool) prints the lines it would change.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "rollback": "nginx.http2_restore",
+  "irreversible": false,
+  "health_check": "nginx -t and the reload pass; otherwise every file is put back.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "http2-off"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "http2-off"
+      ]
+    },
+    "dry_run_argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "http2-plan"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "nginx",
+        "http2-plan"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent nginx http2-off",
+      "dnf": "/usr/local/bin/bifrost-agent nginx http2-off"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}
