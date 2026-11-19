@@ -47,8 +47,8 @@
       ]
     },
     "sudo": {
-      "apt": "/usr/local/bin/bifrost-agent php install * *",
-      "dnf": "/usr/local/bin/bifrost-agent php install * *"
+      "apt": "/usr/local/bin/bifrost-agent php install *",
+      "dnf": "/usr/local/bin/bifrost-agent php install *"
     },
     "health": {
       "check": "exit_status",

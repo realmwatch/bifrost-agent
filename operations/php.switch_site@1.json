@@ -57,8 +57,8 @@
       ]
     },
     "sudo": {
-      "apt": "/usr/local/bin/bifrost-agent php switch * * *",
-      "dnf": "/usr/local/bin/bifrost-agent php switch * * *"
+      "apt": "/usr/local/bin/bifrost-agent php switch *",
+      "dnf": "/usr/local/bin/bifrost-agent php switch *"
     },
     "health": {
       "check": "exit_status",

@@ -555,20 +555,25 @@ func checkElement(el string, ps *schema.Schema) error {
 	return nil
 }
 
-// SudoRule derives the sudo command pattern for an argument list: every
-// argument that holds a placeholder, including a list argument, becomes a
-// "*". An optional last argument adds nothing: it needs a "*" before it.
+// SudoRule derives the sudo command pattern for an argument list: the
+// arguments up to the first placeholder (or list, or optional argument)
+// stay literal, and one "*" stands for that argument and everything after;
+// an optional last argument adds nothing, as it needs a "*" before it.
+// sudo-rs (the default sudo on newer Ubuntu) accepts a wildcard only as the
+// sole last argument, and classic sudo's "*" already matches across
+// spaces, so "a * *" allowed nothing that "a *" doesn't.
 func SudoRule(argv []string) string {
 	out := make([]string, 0, len(argv))
 	for _, el := range argv {
-		switch {
-		case optionalRe.MatchString(el):
-			// A sudoers "*" before it already matches any further arguments.
-		case placeholderRe.MatchString(el), eachRe.MatchString(el):
-			out = append(out, "*")
-		default:
-			out = append(out, el)
+		if optionalRe.MatchString(el) {
+			// An optional argument only follows a "*", which already covers it.
+			break
 		}
+		if placeholderRe.MatchString(el) || eachRe.MatchString(el) {
+			out = append(out, "*")
+			break
+		}
+		out = append(out, el)
 	}
 	return strings.Join(out, " ")
 }
