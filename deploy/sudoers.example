@@ -36,13 +36,13 @@ bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx source-restore
 # nginx.source.nginx_org@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx to-nginx-org
 # php.install@1
-bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php install * *
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php install *
 # php.remove@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php remove *
 # php.restore@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php restore *
 # php.switch_site@1
-bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php switch * * *
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php switch *
 # apt.source.disable@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release disable *
 # packages.remove_obsolete@1

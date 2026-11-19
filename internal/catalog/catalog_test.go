@@ -270,6 +270,13 @@ func TestSudoersExampleUpToDate(t *testing.T) {
 	if strings.Count(got, "/usr/bin/systemctl restart *") != 1 {
 		t.Fatal("shared service rule should be listed once")
 	}
+	// sudo-rs (the default sudo on newer Ubuntu) refuses the whole file when
+	// a "*" is anything but the sole last argument.
+	for _, line := range strings.Split(got, "\n") {
+		if i := strings.Index(line, "*"); !strings.HasPrefix(line, "#") && i >= 0 && (i != len(line)-1 || line[i-1] != ' ') {
+			t.Errorf("sudo-rs only accepts a wildcard as the last argument: %s", line)
+		}
+	}
 }
 
 func TestTier(t *testing.T) {
