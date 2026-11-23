@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/realmwatch/bifrost-agent/internal/filebackup"
 	"github.com/realmwatch/bifrost-agent/internal/runner"
 )
 
@@ -470,39 +471,7 @@ func (e *Env) putBack(ctx context.Context, files []fileEdit) error {
 // writeLike replaces the file's content by renaming a temporary file in the
 // same directory over it, keeping its mode and owner.
 func writeLike(f fileEdit, content []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(f.Real), ".bifrost-nginx-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	cleanup := func(err error) error {
-		tmp.Close()
-		os.Remove(name)
-		return err
-	}
-	if _, err := tmp.Write(content); err != nil {
-		return cleanup(err)
-	}
-	if err := tmp.Sync(); err != nil {
-		return cleanup(err)
-	}
-	if err := tmp.Chmod(os.FileMode(f.Mode)); err != nil {
-		return cleanup(err)
-	}
-	if f.UID >= 0 {
-		if err := tmp.Chown(f.UID, f.GID); err != nil {
-			return cleanup(err)
-		}
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(name)
-		return err
-	}
-	if err := os.Rename(name, f.Real); err != nil {
-		os.Remove(name)
-		return err
-	}
-	return nil
+	return filebackup.WriteLike(f.Real, f.Mode, f.UID, f.GID, content)
 }
 
 func (e *Env) check(ctx context.Context, what string, argv ...string) error {

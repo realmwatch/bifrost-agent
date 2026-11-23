@@ -1,0 +1,50 @@
+{
+  "name": "php.source.sury_org",
+  "version": 1,
+  "description": "Move PHP's apt source from Ondřej Surý's ondrej/php PPA, which is deprecated and frozen (its Release Label changed to \"PPA for PHP (deprecated)\", so apt-get update fails on it), to packages.sury.org/php, the way the PPA's notice says, on Ubuntu jammy, noble or resolute. It installs, upgrades or removes no PHP package and restarts nothing: installed PHP packages stay as they are and take their next updates from packages.sury.org/php. It refuses unless a .list or .sources file in /etc/apt/sources.list.d enables the PPA (ppa.launchpadcontent.net/ondrej/php or its ppa.setup-php.com mirror), or if /etc/apt/sources.list itself does. It backs up the PPA's source files, /etc/apt/sources.list.d/php.sources and /etc/apt/preferences.d/php.pref under /var/backups/php-source and records whether debsuryorg-repository-php and debsuryorg-archive-keyring were installed, then: refreshes the PPA's lists only, accepting its Label change and nothing else; installs debsuryorg-repository-php from the PPA (its only dependency outside the base system is debsuryorg-archive-keyring, signed by the PPA key the host already trusts; it refuses if apt would remove anything or touch a PHP package), which writes php.sources for packages.sury.org/php and pins the PPA to priority 100; checks packages.sury.org/php is enabled; removes the PPA's source files; refreshes packages.sury.org/php's list only and checks apt-cache policy finds an installed PPA-built PHP package's candidate there. If any step fails, every file is put back and debsuryorg-repository-php is purged if this installed it. The dry run (and the php_source state tool) lists what will change.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "rollback": "php.source.restore",
+  "irreversible": false,
+  "health_check": "The helper checks packages.sury.org/php is enabled, its list downloaded and apt's candidate for an installed PPA-built PHP package comes from it.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "to-sury-org"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "to-sury-org"
+      ]
+    },
+    "dry_run_argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "source-plan"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "source-plan"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent php to-sury-org",
+      "dnf": "/usr/local/bin/bifrost-agent php to-sury-org"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

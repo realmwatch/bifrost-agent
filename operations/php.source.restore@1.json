@@ -1,0 +1,38 @@
+{
+  "name": "php.source.restore",
+  "version": 1,
+  "description": "Rollback of php.source.sury_org: put back the ondrej/php PPA's source files, /etc/apt/sources.list.d/php.sources and /etc/apt/preferences.d/php.pref from its newest backup in /var/backups/php-source, and purge debsuryorg-repository-php if the move installed it (debsuryorg-archive-keyring stays installed, and it says so). It installs, upgrades or removes no PHP package and restarts nothing, and doesn't refresh the package lists. The PPA is frozen and deprecated, so it gets no more updates, and apt-get update fails on its changed Label while apt still holds its old list. Does nothing when there's no move to put back.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "rollback": null,
+  "irreversible": false,
+  "health_check": "The helper reports what it put back.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "source-restore"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "php",
+        "source-restore"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent php source-restore",
+      "dnf": "/usr/local/bin/bifrost-agent php source-restore"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

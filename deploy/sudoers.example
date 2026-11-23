@@ -41,8 +41,12 @@ bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php install *
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php remove *
 # php.restore@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php restore *
+# php.source.restore@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php source-restore
 # php.switch_site@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php switch *
+# php.source.sury_org@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php to-sury-org
 # apt.source.disable@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release disable *
 # packages.remove_obsolete@1
@@ -75,6 +79,8 @@ bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx http2-plan
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx source-plan
 # state tool php_sites (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php sites
+# state tool php_source (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php source-plan
 # state tool release_leftovers (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release leftovers
 # state tool services_needing_restart (read-only)

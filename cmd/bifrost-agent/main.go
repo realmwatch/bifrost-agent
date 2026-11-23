@@ -67,6 +67,10 @@ Commands:
   php remove VERSION   Remove one PHP version if nothing uses it (root, apt).
   php restore VERSION [BACKUP]
                        Reinstall a removed PHP version from its backup.
+  php source-plan | to-sury-org | source-restore
+                       Move PHP's apt source from the deprecated ondrej/php
+                       PPA to packages.sury.org, print what that would change,
+                       or put the PPA back (root, Ubuntu).
   kernel remove RELEASE...
                        Purge old kernels that aren't running (root, apt).
   nginx http2-plan | http2-off | http2-restore | check
@@ -186,16 +190,18 @@ func cmdNginx(args []string, stdout io.Writer) error {
 }
 
 // cmdPHP runs the PHP operations through sudo: php.remove, php.restore,
-// php.install and php.switch_site, and the php_sites report.
+// php.install, php.switch_site, php.source.sury_org and php.source.restore,
+// and the php_sites and php_source reports.
 func cmdPHP(args []string, stdout io.Writer) error {
 	n := len(args)
 	valid := n >= 1 && (args[0] == "sites" && n == 1 ||
+		(args[0] == "source-plan" || args[0] == "to-sury-org" || args[0] == "source-restore") && n == 1 ||
 		args[0] == "remove" && n == 2 ||
 		args[0] == "restore" && (n == 2 || n == 3) ||
 		args[0] == "install" && n == 3 ||
 		args[0] == "switch" && n == 4)
 	if !valid {
-		return usageError{"usage: bifrost-agent php sites | remove VERSION | restore VERSION [BACKUP] | install VERSION LIKE | switch ROOT FROM TO"}
+		return usageError{"usage: bifrost-agent php sites | source-plan | to-sury-org | source-restore | remove VERSION | restore VERSION [BACKUP] | install VERSION LIKE | switch ROOT FROM TO"}
 	}
 	if os.Geteuid() != 0 {
 		return errors.New("php " + args[0] + " must run as root")
@@ -209,6 +215,16 @@ func cmdPHP(args []string, stdout io.Writer) error {
 			return err
 		}
 		return json.NewEncoder(stdout).Encode(r)
+	case "source-plan":
+		p, err := e.SourcePlanFor(ctx)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(p)
+	case "to-sury-org":
+		return e.MoveToSury(ctx)
+	case "source-restore":
+		return e.RestoreSource(ctx)
 	case "remove":
 		return e.Remove(ctx, args[1])
 	case "install":

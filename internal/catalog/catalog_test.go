@@ -24,7 +24,7 @@ func TestEmbeddedCatalog(t *testing.T) {
 		"nginx.check@1", "nginx.http2_off@1", "nginx.http2_restore@1", "nginx.source.nginx_org@1", "nginx.source.restore@1",
 		"package.hold@1", "package.install@1", "package.refresh@1", "package.unhold@1", "package.upgrade@1",
 		"packages.remove_obsolete@1", "packages.upgrade@1",
-		"php.install@1", "php.remove@1", "php.restore@1", "php.switch_site@1",
+		"php.install@1", "php.remove@1", "php.restore@1", "php.source.restore@1", "php.source.sury_org@1", "php.switch_site@1",
 		"service.disable@1", "service.enable@1", "service.reload@1", "service.restart@1", "service.start@1", "service.stop@1",
 		"system.reboot@1",
 	}
@@ -39,6 +39,7 @@ func TestEmbeddedCatalog(t *testing.T) {
 		"service.start@1": TierLow, "service.stop@1": TierMedium,
 		"system.reboot@1": TierHigh, "agent.upgrade@1": TierHigh, "collector.upgrade@1": TierHigh,
 		"php.install@1": TierMedium, "php.remove@1": TierHigh, "php.restore@1": TierHigh, "php.switch_site@1": TierHigh,
+		"php.source.sury_org@1": TierHigh, "php.source.restore@1": TierHigh,
 		"kernel.remove@1":       TierMedium,
 		"apt.source.retarget@1": TierMedium, "apt.source.disable@1": TierMedium, "apt.source.restore@1": TierMedium,
 		"packages.remove_obsolete@1": TierMedium,
@@ -217,7 +218,7 @@ func TestExport(t *testing.T) {
 	if err := json.Unmarshal(out, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 29 {
+	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 31 {
 		t.Fatalf("doc = %+v", doc)
 	}
 	wantKeys := []string{"description", "dry_run", "files_written", "health_check", "irreversible", "min_tier", "name", "params", "rollback", "version"}

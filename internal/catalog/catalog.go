@@ -64,6 +64,10 @@ var PrivilegedReads = map[string]map[string][]string{
 	"nginx_source": {
 		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "nginx", "source-plan"},
 	},
+	// php_source reads the backups under /var/backups/php-source.
+	"php_source": {
+		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "php", "source-plan"},
+	},
 }
 
 // healthCheck describes a health check implemented in Go: the templated

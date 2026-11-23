@@ -4,18 +4,16 @@ import (
 	"bufio"
 	"context"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/realmwatch/bifrost-agent/internal/filebackup"
 	"github.com/realmwatch/bifrost-agent/internal/runner"
 	"github.com/realmwatch/bifrost-agent/internal/state"
 )
@@ -83,17 +81,9 @@ type configChange struct {
 	lines []int // 1-based lines to drop
 }
 
-// entry is one path the move touches, as it was before.
-type entry struct {
-	Path   string `json:"path"`
-	Group  string `json:"group"` // apt or nginx
-	Kind   string `json:"kind"`  // file, symlink or absent
-	Backup string `json:"backup,omitempty"`
-	Link   string `json:"link,omitempty"`
-	Mode   uint32 `json:"mode,omitempty"`
-	UID    int    `json:"uid"`
-	GID    int    `json:"gid"`
-}
+// entry is one path the move touches, as it was before; its group is apt
+// or nginx.
+type entry = filebackup.Entry
 
 type sourceManifest struct {
 	Created     string  `json:"created"`
@@ -202,7 +192,7 @@ func (e *Env) SourcePlanFor(ctx context.Context) (*SourcePlan, error) {
 		return nil, err
 	}
 	for _, b := range backups {
-		p.Restorable = append(p.Restorable, filepath.Base(b.dir))
+		p.Restorable = append(p.Restorable, filepath.Base(b.Dir))
 	}
 	p.Steps = []string{
 		"Back up every file below to " + sourceBackupRoot,
@@ -372,10 +362,10 @@ func (e *Env) RestoreSource(ctx context.Context) error {
 	version := e.installedNginx(ctx)
 	ppa := strings.Contains(version, "deb.sury.org")
 	groups := map[string]bool{"apt": true, "nginx": ppa}
-	if err := e.restoreEntries(b.m.Entries, b.dir, groups); err != nil {
+	if err := e.restoreEntries(b.M.Entries, b.Dir, groups); err != nil {
 		return err
 	}
-	e.say("Put back the apt sources, key and pin from %s", b.dir)
+	e.say("Put back the apt sources, key and pin from %s", b.Dir)
 	if ppa {
 		e.say("Put back the nginx configuration: the PPA's nginx %s is still installed", version)
 		if err := e.check(ctx, "nginx -t", nginxBin, "-t"); err != nil {
@@ -387,7 +377,7 @@ func (e *Env) RestoreSource(ctx context.Context) error {
 	} else {
 		e.say("nginx %s from nginx.org stays installed: the ondrej/nginx PPA's package can't be reinstalled, because Launchpad removed the PPA, so the nginx configuration stays as this build needs it. The PPA's source is back, but apt can't fetch from it any more.", version)
 	}
-	return os.WriteFile(filepath.Join(b.dir, restoredMark), []byte(e.Now().UTC().Format(time.RFC3339)+"\n"), 0o600)
+	return os.WriteFile(filepath.Join(b.Dir, restoredMark), []byte(e.Now().UTC().Format(time.RFC3339)+"\n"), 0o600)
 }
 
 // simulated reads apt-get -s: the nginx version it would install and the
@@ -472,140 +462,25 @@ func (e *Env) danglingModules(dir string, m *sourceManifest) ([]string, error) {
 }
 
 func (e *Env) saveEntry(dir, name, path, group string) (entry, error) {
-	en := entry{Path: path, Group: group, UID: -1, GID: -1}
-	info, err := os.Lstat(e.path(path))
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		en.Kind = "absent"
-		return en, nil
-	case err != nil:
-		return en, err
-	case info.Mode()&os.ModeSymlink != 0:
-		en.Kind = "symlink"
-		en.Link, err = os.Readlink(e.path(path))
-		return en, err
-	}
-	b, err := os.ReadFile(e.path(path))
-	if err != nil {
-		return en, err
-	}
-	if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
-		return en, err
-	}
-	en.Kind, en.Backup, en.Mode = "file", name, uint32(info.Mode().Perm())
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		en.UID, en.GID = int(st.Uid), int(st.Gid)
-	}
-	return en, nil
+	return filebackup.Save(e.Root, dir, name, path, group)
 }
 
 // restoreEntries puts every entry of the groups (all when nil) back as it
 // was, in reverse order.
 func (e *Env) restoreEntries(entries []entry, dir string, groups map[string]bool) error {
-	var errs []error
-	for i := len(entries) - 1; i >= 0; i-- {
-		en := entries[i]
-		if groups != nil && !groups[en.Group] {
-			continue
-		}
-		full := e.path(en.Path)
-		switch en.Kind {
-		case "absent":
-			if err := os.Remove(full); err != nil && !errors.Is(err, os.ErrNotExist) {
-				errs = append(errs, err)
-			}
-		case "symlink":
-			_ = os.Remove(full)
-			if err := os.Symlink(en.Link, full); err != nil {
-				errs = append(errs, err)
-			}
-		case "file":
-			b, err := os.ReadFile(filepath.Join(dir, en.Backup))
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			real := full
-			if r, err := filepath.EvalSymlinks(full); err == nil {
-				real = r
-			}
-			if err := writeLike(fileEdit{Path: en.Path, Real: real, Mode: en.Mode, UID: en.UID, GID: en.GID}, b); err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", en.Path, err))
-			}
-		}
-	}
-	return errors.Join(errs...)
+	return filebackup.Restore(e.Root, entries, dir, groups)
 }
 
-type sourceBackup struct {
-	dir string
-	m   sourceManifest
-}
+type sourceBackup = filebackup.Backup[sourceManifest]
 
 func (e *Env) unrestoredSource() ([]sourceBackup, error) {
-	root := e.path(sourceBackupRoot)
-	ents, err := os.ReadDir(root)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var out []sourceBackup
-	for _, ent := range ents {
-		dir := filepath.Join(root, ent.Name())
-		if !ent.IsDir() {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dir, restoredMark)); err == nil {
-			continue
-		}
-		b, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
-		if err != nil {
-			return nil, fmt.Errorf("reading backup %s: %w", ent.Name(), err)
-		}
-		var m sourceManifest
-		if err := json.Unmarshal(b, &m); err != nil {
-			return nil, fmt.Errorf("reading backup %s: %w", ent.Name(), err)
-		}
-		out = append(out, sourceBackup{dir: dir, m: m})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].dir > out[j].dir })
-	return out, nil
+	return filebackup.Unrestored[sourceManifest](e.Root, sourceBackupRoot)
 }
 
-func writeManifest(dir string, m sourceManifest) error {
-	b, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, "manifest.json"), b, 0o600)
-}
+func writeManifest(dir string, m sourceManifest) error { return filebackup.WriteManifest(dir, m) }
 
 func (e *Env) newBackupDir(rootPath string) (string, error) {
-	root := e.path(rootPath)
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return "", err
-	}
-	if err := os.Chmod(root, 0o700); err != nil {
-		return "", err
-	}
-	stamp := e.Now().UTC().Format(stampLayout)
-	dir := filepath.Join(root, stamp)
-	for i := 2; ; i++ {
-		err := os.Mkdir(dir, 0o700)
-		if err == nil {
-			return dir, nil
-		}
-		if !errors.Is(err, os.ErrExist) || i > 100 {
-			return "", err
-		}
-		dir = filepath.Join(root, fmt.Sprintf("%s-%d", stamp, i))
-	}
+	return filebackup.NewDir(e.Root, rootPath, e.Now())
 }
 
 func (e *Env) apt(ctx context.Context, what string, argv ...string) error {
