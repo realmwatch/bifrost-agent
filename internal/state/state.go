@@ -187,6 +187,7 @@ func init() {
 	register("php_sites", noArgs, toolPHPSites)
 	register("nginx_http2", noArgs, toolNginxHTTP2)
 	register("nginx_source", noArgs, toolNginxSource)
+	register("php_source", noArgs, toolPHPSource)
 }
 
 // ToolNames lists the tools, sorted.

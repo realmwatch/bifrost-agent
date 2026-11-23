@@ -388,7 +388,7 @@ func TestFactsAndDetect(t *testing.T) {
 }
 
 func TestToolNames(t *testing.T) {
-	want := []string{"boot", "disk", "journal", "memory", "nginx_http2", "nginx_source", "os", "packages", "pending_updates", "php_sites", "ports", "release_leftovers", "service_status", "services_needing_restart", "sessions"}
+	want := []string{"boot", "disk", "journal", "memory", "nginx_http2", "nginx_source", "os", "packages", "pending_updates", "php_sites", "php_source", "ports", "release_leftovers", "service_status", "services_needing_restart", "sessions"}
 	if got := ToolNames(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tools = %v", got)
 	}

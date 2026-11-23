@@ -316,3 +316,24 @@ func toolNginxSource(ctx context.Context, e *Env, _ map[string]any) (any, error)
 	}
 	return report, nil
 }
+
+// toolPHPSource reports what moving PHP's apt source from the ondrej/php
+// PPA to packages.sury.org would change, or why it would refuse.
+func toolPHPSource(ctx context.Context, e *Env, _ map[string]any) (any, error) {
+	if err := e.requirePM(); err != nil {
+		return nil, err
+	}
+	argv, ok := catalog.PrivilegedReads["php_source"][e.PackageManager]
+	if !ok {
+		return nil, fmt.Errorf("php_source is only supported on apt hosts")
+	}
+	out, err := e.runOK(ctx, e.privileged(argv)...)
+	if err != nil {
+		return nil, err
+	}
+	var report map[string]any
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		return nil, fmt.Errorf("reading the PHP source report: %w", err)
+	}
+	return report, nil
+}
