@@ -252,9 +252,9 @@ A `passkey_batch` approval is valid for an envelope when:
 2. Its `organization_id` equals the envelope's.
 3. The envelope's hash, as lowercase hex, is in `envelopes`.
 4. The assertion is a valid passkey signature, as above, with `SHA-256(batch bytes)` as the challenge.
-5. Every operation in the envelope is in the agent's compiled batch list, and so is every rollback step. A batch approves routine fleet upkeep and nothing else, whatever the hub puts in it:
-   - operations: `package.upgrade@1`, `packages.upgrade@1`, `agent.upgrade@1`, `collector.upgrade@1`, `package.refresh@1`, `package.hold@1`, `package.unhold@1`, `service.restart@1`, `service.reload@1`, `kernel.remove@1` and `system.reboot@1`;
-   - rollback steps: `package.install@1`, `package.hold@1` and `package.unhold@1`.
+5. Every operation in the envelope is in the agent's compiled batch list, and so is every rollback step, whatever the hub puts in it:
+   - operations: `package.upgrade@1`, `packages.upgrade@1`, `agent.upgrade@1`, `collector.upgrade@1`, `package.refresh@1`, `package.hold@1`, `package.unhold@1`, `service.restart@1`, `service.reload@1`, `kernel.remove@1` and `system.reboot@1`, and from v0.17.0 every other operation in the catalog: `package.install@1`, `packages.remove_obsolete@1`, `apt.source.disable@1`, `apt.source.restore@1`, `apt.source.retarget@1`, `nginx.check@1`, `nginx.http2_off@1`, `nginx.http2_restore@1`, `nginx.source.nginx_org@1`, `nginx.source.restore@1`, `php.install@1`, `php.remove@1`, `php.restore@1`, `php.source.sury_org@1`, `php.source.restore@1`, `php.switch_site@1`, `service.start@1`, `service.stop@1`, `service.enable@1` and `service.disable@1`;
+   - rollback steps: `package.install@1`, `package.hold@1` and `package.unhold@1`, and from v0.17.0 `apt.source.restore@1`, `nginx.http2_off@1`, `nginx.http2_restore@1`, `nginx.source.restore@1`, `php.restore@1`, `php.source.restore@1`, `php.switch_site@1`, `service.start@1`, `service.stop@1`, `service.enable@1` and `service.disable@1`.
 
    Agents before v0.9.0 allow only `package.upgrade@1` and `packages.upgrade@1`, with `package.install@1` as rollback.
 
