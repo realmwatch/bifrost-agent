@@ -39,7 +39,10 @@ var CompiledDenyRules = []DenyRule{{
 
 // CompiledAutoApproval lists the operations a policy approval alone may
 // approve. Certificate renewal and security updates join when they exist.
-var CompiledAutoApproval = []string{"service.restart@1"}
+// collector.upgrade@1 installs only a newer Heimdall collector release whose
+// signature the server checks, so a policy key can't do more with it than
+// keep the collector current.
+var CompiledAutoApproval = []string{"service.restart@1", "collector.upgrade@1"}
 
 // Check numbers, as in PROTOCOL.md.
 const (
