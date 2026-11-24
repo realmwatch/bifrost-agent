@@ -113,6 +113,11 @@ func toolBoot(ctx context.Context, e *Env, _ map[string]any) (any, error) {
 		res["reboot_required"] = nil
 	}
 	res["reboot_required_by"] = packages
+	if lp := e.Livepatch(); lp != nil {
+		res["livepatch"] = map[string]any{"applied": lp.Applied, "patches": lp.Patches, "client": e.LivepatchStatus(ctx)}
+	} else {
+		res["livepatch"] = nil
+	}
 	scheduled, err := e.ScheduledShutdown()
 	if err != nil {
 		return nil, err

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -28,6 +29,12 @@ type Facts struct {
 	// RebootRequired is set on apt systems, where it's a file check:
 	// "yes" or "no". dnf systems leave it out (the boot tool asks dnf).
 	RebootRequired string `json:"reboot_required,omitempty"`
+	// RebootRequiredBy lists the packages asking for the reboot, where
+	// apt records them (agent v0.18.0).
+	RebootRequiredBy []string `json:"reboot_required_by,omitempty"`
+	// Livepatch is what the kernel says about live patches, left out where
+	// it can't take them (agent v0.18.0).
+	Livepatch *Livepatch `json:"livepatch,omitempty"`
 	// CollectorVersion is the Heimdall collector installed here, if any.
 	CollectorVersion string `json:"collector_version,omitempty"`
 	// CollectorSettings says which of the collector's optional reports are
@@ -124,10 +131,14 @@ func (e *Env) Facts() Facts {
 	f.CollectorSettings = e.CollectorSettings()
 	if e.PackageManager == catalog.PackageManagerApt {
 		f.RebootRequired = "no"
-		if _, err := os.Stat(e.Path("/run/reboot-required")); err == nil {
+		if required, packages, known := e.RebootRequired(context.Background()); known && required {
 			f.RebootRequired = "yes"
+			if len(packages) > 0 {
+				f.RebootRequiredBy = packages
+			}
 		}
 	}
+	f.Livepatch = e.Livepatch()
 	return f
 }
 
