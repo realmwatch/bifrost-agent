@@ -19,10 +19,11 @@ type BatchList struct {
 	Rollback   []string
 }
 
-// CompiledBatchApproval is the agent's own batch list: routine fleet upkeep
-// (package updates, agent and collector upgrades, package list refreshes,
-// holds, service restarts and reloads, old kernel removal and reboots) and
-// nothing else, whatever the hub puts in it. The hub staggers the reboots
+// CompiledBatchApproval is the agent's own batch list, whatever the hub puts
+// in it: routine fleet upkeep (package updates, agent and collector
+// upgrades, package list refreshes, holds, service restarts and reloads, old
+// kernel removal and reboots) and, from v0.17.0, every other operation in
+// the catalog, so a rollout of any of them is approved with one tap. The hub staggers the reboots
 // in a batch; each agent only checks its own envelope.
 var CompiledBatchApproval = BatchList{
 	Operations: []string{
@@ -31,8 +32,21 @@ var CompiledBatchApproval = BatchList{
 		"package.refresh@1", "package.hold@1", "package.unhold@1",
 		"service.restart@1", "service.reload@1",
 		"kernel.remove@1", "system.reboot@1",
+		// From v0.17.0: every other operation in the catalog.
+		"package.install@1", "packages.remove_obsolete@1",
+		"apt.source.disable@1", "apt.source.restore@1", "apt.source.retarget@1",
+		"nginx.check@1", "nginx.http2_off@1", "nginx.http2_restore@1",
+		"nginx.source.nginx_org@1", "nginx.source.restore@1",
+		"php.install@1", "php.remove@1", "php.restore@1",
+		"php.source.sury_org@1", "php.source.restore@1", "php.switch_site@1",
+		"service.start@1", "service.stop@1", "service.enable@1", "service.disable@1",
 	},
-	Rollback: []string{"package.install@1", "package.hold@1", "package.unhold@1"},
+	Rollback: []string{
+		"package.install@1", "package.hold@1", "package.unhold@1",
+		"apt.source.restore@1", "nginx.http2_off@1", "nginx.http2_restore@1", "nginx.source.restore@1",
+		"php.restore@1", "php.source.restore@1", "php.switch_site@1",
+		"service.start@1", "service.stop@1", "service.enable@1", "service.disable@1",
+	},
 }
 
 // allows reports why env is not batchable, or nil when it is.
