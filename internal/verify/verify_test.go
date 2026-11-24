@@ -181,6 +181,13 @@ func restartEnvelope() map[string]any {
 	return m
 }
 
+func collectorEnvelope() map[string]any {
+	m := envelopeMap()
+	m["operations"] = []any{map[string]any{"op": "collector.upgrade", "version": 1, "params": map[string]any{"version": "v0.5.40"}}}
+	m["rollback"] = []any{}
+	return m
+}
+
 const criticalDef = `{
   "name": "test.critical", "version": 1, "description": "A critical test operation.", "min_tier": "critical",
   "params": {"type":"object","additionalProperties":false,"properties":{}},
@@ -386,6 +393,8 @@ func TestVerify(t *testing.T) {
 
 		// 7. policy approvals
 		{name: "policy only for auto-approved op", envelope: func() []byte { return encode(restartEnvelope()) },
+			approvals: func(e []byte) []Approval { return []Approval{policyApproval(f, e)} }},
+		{name: "policy only for a collector upgrade", envelope: func() []byte { return encode(collectorEnvelope()) },
 			approvals: func(e []byte) []Approval { return []Approval{policyApproval(f, e)} }},
 		{name: "policy only for non-listed op", envelope: std,
 			approvals: func(e []byte) []Approval { return []Approval{policyApproval(f, e)} }, wantCheck: 7, wantIn: "policy approval alone cannot approve package.upgrade@1"},
