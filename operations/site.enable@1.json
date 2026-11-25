@@ -1,0 +1,76 @@
+{
+  "name": "site.enable",
+  "version": 1,
+  "description": "Put back a site site.disable retired, from its restore record: links or moves its nginx files back, runs nginx -t and reloads (undoing the links if either fails), uncomments the marked cron lines, restores supervisor programs' autostart and starts those that were running, and enables and starts the systemd services as they were. A file that exists again (drift) is left as it is. Without a record it does its best: links the sites-available file serving only the root (the vhost hint first) into sites-enabled and uncomments the marked cron lines, and says supervisor programs and units weren't restored.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "root"
+    ],
+    "properties": {
+      "root": {
+        "type": "string",
+        "description": "The site's app root, the directory above public/, such as /home/acme/example.com.",
+        "pattern": "^/[A-Za-z0-9._/-]+$",
+        "maxLength": 255
+      },
+      "vhost": {
+        "type": "string",
+        "description": "The nginx file the site was seen in, a hint only: the agent checks it serves root, and finds the right files itself.",
+        "pattern": "^/etc/nginx/(sites-enabled|sites-available|conf\\.d)/[A-Za-z0-9._-]+$",
+        "maxLength": 255
+      }
+    }
+  },
+  "rollback": "site.disable",
+  "irreversible": false,
+  "health_check": "The helper checks nginx -t and the reload pass, and puts the links back as they were if not.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "site",
+        "enable",
+        "{root}",
+        "{vhost?}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "site",
+        "enable",
+        "{root}",
+        "{vhost?}"
+      ]
+    },
+    "dry_run_argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "site",
+        "plan",
+        "enable",
+        "{root}",
+        "{vhost?}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "site",
+        "plan",
+        "enable",
+        "{root}",
+        "{vhost?}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent site enable *",
+      "dnf": "/usr/local/bin/bifrost-agent site enable *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

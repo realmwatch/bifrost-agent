@@ -342,3 +342,28 @@ func toolPHPSource(ctx context.Context, e *Env, _ map[string]any) (any, error) {
 	}
 	return report, nil
 }
+
+// toolSitePlan is site.disable's and site.enable's dry run: what each
+// would change, or why it would refuse (apt; v0.19.0).
+func toolSitePlan(ctx context.Context, e *Env, args map[string]any) (any, error) {
+	if err := e.requirePM(); err != nil {
+		return nil, err
+	}
+	argv, ok := catalog.PrivilegedReads["site_plan"][e.PackageManager]
+	if !ok {
+		return nil, fmt.Errorf("site_plan is only supported on apt hosts")
+	}
+	argv = append(append([]string{}, argv...), args["action"].(string), args["root"].(string))
+	if vhost, _ := args["vhost"].(string); vhost != "" {
+		argv = append(argv, vhost)
+	}
+	out, err := e.runOK(ctx, e.privileged(argv)...)
+	if err != nil {
+		return nil, err
+	}
+	var report map[string]any
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		return nil, fmt.Errorf("reading the site plan: %w", err)
+	}
+	return report, nil
+}
