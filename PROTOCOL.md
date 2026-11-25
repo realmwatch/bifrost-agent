@@ -327,7 +327,7 @@ In order; the first failure is a `rejected` event and nothing runs.
 7. Approvals satisfy the agent's own rules, with the tier taken from the agent's compiled `min_tier` of each operation and rollback step (never the envelope's `risk_tier`):
    - at least one valid passkey approval, from a key in the current key set;
    - `critical`: valid passkey approvals from two different `owner`s;
-   - a policy approval alone is enough only if every operation and rollback step is in the agent's compiled auto-approval list (`service.restart@1`, and from v0.16.0 `collector.upgrade@1`);
+   - a policy approval alone is enough only if every operation and rollback step is in the agent's compiled auto-approval list (`service.restart@1`, from v0.16.0 `collector.upgrade@1`, and from v0.20.0 `agent.upgrade@1`);
    - a `passkey_batch` approval counts as a passkey approval only when it passes the [batch checks](#batch-approvals), which include the compiled batch list.
 
 Then it runs the operations in order. If one fails or its health check fails, it runs the rollback steps (if any) and reports `rolled_back`, otherwise `failed`.

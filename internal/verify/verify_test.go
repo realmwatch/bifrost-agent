@@ -181,6 +181,13 @@ func restartEnvelope() map[string]any {
 	return m
 }
 
+func agentUpgradeEnvelope() map[string]any {
+	m := envelopeMap()
+	m["operations"] = []any{map[string]any{"op": "agent.upgrade", "version": 1, "params": map[string]any{"version": "v0.20.0"}}}
+	m["rollback"] = []any{}
+	return m
+}
+
 func collectorEnvelope() map[string]any {
 	m := envelopeMap()
 	m["operations"] = []any{map[string]any{"op": "collector.upgrade", "version": 1, "params": map[string]any{"version": "v0.5.40"}}}
@@ -395,6 +402,8 @@ func TestVerify(t *testing.T) {
 		{name: "policy only for auto-approved op", envelope: func() []byte { return encode(restartEnvelope()) },
 			approvals: func(e []byte) []Approval { return []Approval{policyApproval(f, e)} }},
 		{name: "policy only for a collector upgrade", envelope: func() []byte { return encode(collectorEnvelope()) },
+			approvals: func(e []byte) []Approval { return []Approval{policyApproval(f, e)} }},
+		{name: "policy only for an agent upgrade", envelope: func() []byte { return encode(agentUpgradeEnvelope()) },
 			approvals: func(e []byte) []Approval { return []Approval{policyApproval(f, e)} }},
 		{name: "policy only for non-listed op", envelope: std,
 			approvals: func(e []byte) []Approval { return []Approval{policyApproval(f, e)} }, wantCheck: 7, wantIn: "policy approval alone cannot approve package.upgrade@1"},

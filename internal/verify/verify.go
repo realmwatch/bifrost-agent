@@ -41,8 +41,10 @@ var CompiledDenyRules = []DenyRule{{
 // approve. Certificate renewal and security updates join when they exist.
 // collector.upgrade@1 installs only a newer Heimdall collector release whose
 // signature the server checks, so a policy key can't do more with it than
-// keep the collector current.
-var CompiledAutoApproval = []string{"service.restart@1", "collector.upgrade@1"}
+// keep the collector current. agent.upgrade@1 is the same for the agent: the
+// server checks the release's signature itself, refuses a downgrade and puts
+// the old agent back if the new one doesn't reach the hub.
+var CompiledAutoApproval = []string{"service.restart@1", "collector.upgrade@1", "agent.upgrade@1"}
 
 // Check numbers, as in PROTOCOL.md.
 const (
