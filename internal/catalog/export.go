@@ -125,7 +125,11 @@ func (c *Catalog) Sudoers(user string) string {
 			if perPM[pm] == nil {
 				perPM[pm] = map[string]*rule{}
 			}
-			add(perPM[pm], strings.Join(argv, " "), "state tool "+tool+" (read-only)")
+			cmd := strings.Join(argv, " ")
+			if PrivilegedReadArgs[tool] {
+				cmd += " *"
+			}
+			add(perPM[pm], cmd, "state tool "+tool+" (read-only)")
 		}
 	}
 	writeRules := func(title string, m map[string]*rule) {

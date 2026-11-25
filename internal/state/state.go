@@ -188,6 +188,10 @@ func init() {
 	register("nginx_http2", noArgs, toolNginxHTTP2)
 	register("nginx_source", noArgs, toolNginxSource)
 	register("php_source", noArgs, toolPHPSource)
+	register("site_plan", `{"type":"object","additionalProperties":false,"required":["action","root"],"properties":{
+		"action":{"type":"string","enum":["disable","enable"]},
+		"root":{"type":"string","pattern":"^/[A-Za-z0-9._/-]+$","maxLength":255},
+		"vhost":{"type":"string","pattern":"^/etc/nginx/(sites-enabled|sites-available|conf\\.d)/[A-Za-z0-9._-]+$","maxLength":255}}}`, toolSitePlan)
 }
 
 // ToolNames lists the tools, sorted.

@@ -55,6 +55,10 @@ bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release remove-obsolet
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release restore *
 # apt.source.retarget@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release retarget *
+# site.disable@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent site disable *
+# site.enable@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent site enable *
 # agent.upgrade@1
 bifrost ALL=(root) NOPASSWD: /usr/local/lib/bifrost-agent/install.sh --self-upgrade *
 # collector.upgrade@1
@@ -83,6 +87,8 @@ bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php sites
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php source-plan
 # state tool release_leftovers (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent release leftovers
+# state tool site_plan (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent site plan *
 # state tool services_needing_restart (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/sbin/needrestart -b -r l
 

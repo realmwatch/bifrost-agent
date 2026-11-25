@@ -26,6 +26,7 @@ func TestEmbeddedCatalog(t *testing.T) {
 		"packages.remove_obsolete@1", "packages.upgrade@1",
 		"php.install@1", "php.remove@1", "php.restore@1", "php.source.restore@1", "php.source.sury_org@1", "php.switch_site@1",
 		"service.disable@1", "service.enable@1", "service.reload@1", "service.restart@1", "service.start@1", "service.stop@1",
+		"site.disable@1", "site.enable@1",
 		"system.reboot@1",
 	}
 	if got := c.Keys(); !reflect.DeepEqual(got, want) {
@@ -43,7 +44,8 @@ func TestEmbeddedCatalog(t *testing.T) {
 		"kernel.remove@1":       TierMedium,
 		"apt.source.retarget@1": TierMedium, "apt.source.disable@1": TierMedium, "apt.source.restore@1": TierMedium,
 		"packages.remove_obsolete@1": TierMedium,
-		"nginx.check@1":              TierLow, "nginx.http2_off@1": TierMedium, "nginx.http2_restore@1": TierMedium, "nginx.source.nginx_org@1": TierHigh, "nginx.source.restore@1": TierHigh,
+		"site.disable@1":             TierHigh, "site.enable@1": TierHigh,
+		"nginx.check@1": TierLow, "nginx.http2_off@1": TierMedium, "nginx.http2_restore@1": TierMedium, "nginx.source.nginx_org@1": TierHigh, "nginx.source.restore@1": TierHigh,
 	}
 	for _, d := range c.Definitions() {
 		if d.MinTier != tiers[d.Key()] {
@@ -218,7 +220,7 @@ func TestExport(t *testing.T) {
 	if err := json.Unmarshal(out, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 31 {
+	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 33 {
 		t.Fatalf("doc = %+v", doc)
 	}
 	wantKeys := []string{"description", "dry_run", "files_written", "health_check", "irreversible", "min_tier", "name", "params", "rollback", "version"}

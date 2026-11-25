@@ -275,12 +275,14 @@ func TestCompiledBatchApproval(t *testing.T) {
 			"php.install@1", "php.remove@1", "php.restore@1",
 			"php.source.sury_org@1", "php.source.restore@1", "php.switch_site@1",
 			"service.start@1", "service.stop@1", "service.enable@1", "service.disable@1",
+			"site.disable@1", "site.enable@1",
 		},
 		Rollback: []string{
 			"package.install@1", "package.hold@1", "package.unhold@1",
 			"apt.source.restore@1", "nginx.http2_off@1", "nginx.http2_restore@1", "nginx.source.restore@1",
 			"php.restore@1", "php.source.restore@1", "php.switch_site@1",
 			"service.start@1", "service.stop@1", "service.enable@1", "service.disable@1",
+			"site.disable@1", "site.enable@1",
 		},
 	}
 	if fmt.Sprint(CompiledBatchApproval) != fmt.Sprint(want) {

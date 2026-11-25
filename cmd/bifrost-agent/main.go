@@ -71,6 +71,11 @@ Commands:
                        Move PHP's apt source from the deprecated ondrej/php
                        PPA to packages.sury.org, print what that would change,
                        or put the PPA back (root, Ubuntu).
+  site plan disable|enable ROOT [VHOST] | disable ROOT [VHOST] | enable ROOT [VHOST]
+                       Retire a site without deleting anything: take its
+                       vhost out of nginx, stop its workers and units and
+                       comment out its cron lines, put it all back, or print
+                       what either would change (root, apt).
   kernel remove RELEASE...
                        Purge old kernels that aren't running (root, apt).
   nginx http2-plan | http2-off | http2-restore | check
@@ -120,6 +125,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = cmdTrustedKeys(rest, stdout, stderr)
 	case "php":
 		err = cmdPHP(rest, stdout)
+	case "site":
+		err = cmdSite(rest, stdout)
 	case "kernel":
 		err = cmdKernel(rest, stdout)
 	case "release":
@@ -237,6 +244,40 @@ func cmdPHP(args []string, stdout io.Writer) error {
 		backup = args[2]
 	}
 	return e.Restore(ctx, args[1], backup)
+}
+
+// cmdSite runs site.disable and site.enable through sudo, and the
+// site_plan report.
+func cmdSite(args []string, stdout io.Writer) error {
+	n := len(args)
+	usage := usageError{"usage: bifrost-agent site plan disable|enable ROOT [VHOST] | disable ROOT [VHOST] | enable ROOT [VHOST]"}
+	if n < 1 {
+		return usage
+	}
+	if os.Geteuid() != 0 {
+		return errors.New("site " + args[0] + " must run as root")
+	}
+	e := &phpops.Env{Runner: runner.Exec{}, Now: time.Now, Out: stdout}
+	ctx := context.Background()
+	optional := func(i int) string {
+		if n > i {
+			return args[i]
+		}
+		return ""
+	}
+	switch {
+	case args[0] == "plan" && (n == 3 || n == 4):
+		p, err := e.PlanSite(ctx, args[1], args[2], optional(3))
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(p)
+	case args[0] == "disable" && (n == 2 || n == 3):
+		return e.DisableSite(ctx, args[1], optional(2))
+	case args[0] == "enable" && (n == 2 || n == 3):
+		return e.EnableSite(ctx, args[1], optional(2))
+	}
+	return usage
 }
 
 // cmdKernel runs kernel.remove through sudo, and its dry run as any user.

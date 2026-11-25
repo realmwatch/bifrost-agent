@@ -68,7 +68,16 @@ var PrivilegedReads = map[string]map[string][]string{
 	"php_source": {
 		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "php", "source-plan"},
 	},
+	// site_plan reads root's crontabs and the disabled sites' records. It
+	// takes the action, root and vhost as arguments (PrivilegedReadArgs).
+	"site_plan": {
+		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "site", "plan"},
+	},
 }
+
+// PrivilegedReadArgs are the privileged reads that take arguments from
+// the state tool's checked args: their sudo rule ends in "*".
+var PrivilegedReadArgs = map[string]bool{"site_plan": true}
 
 // healthCheck describes a health check implemented in Go: the templated
 // string arguments it takes, sorted, and optionally one argument that names

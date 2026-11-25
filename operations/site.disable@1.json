@@ -1,0 +1,76 @@
+{
+  "name": "site.disable",
+  "version": 1,
+  "description": "Retire one site without deleting anything. It takes every enabled nginx file serving the root out of nginx (a sites-enabled symlink is removed; a regular file in sites-enabled or conf.d is moved to /etc/nginx/bifrost-disabled), runs nginx -t and reloads; comments out cron lines (/etc/cron.d, users' crontabs) that run anything under the root, with a marker; sets supervisor programs whose command or directory is under the root to autostart=false and stops them; and disables and stops systemd services whose ExecStart or WorkingDirectory is under the root. Files, databases, certificates, DNS, the firewall and PHP-FPM pools are left alone. It refuses when a file serving the root also serves another root, or is a default_server. Each change is recorded with what was there before in /var/lib/bifrost-agent/disabled-sites, which site.enable replays. It checks afterwards that no enabled vhost serves the root and the programs and units are stopped; on any failure it puts back everything it changed. The dry run (the site_plan state tool) lists what will change, and drift: a vhost serving the root again after it was disabled.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "root"
+    ],
+    "properties": {
+      "root": {
+        "type": "string",
+        "description": "The site's app root, the directory above public/, such as /home/acme/example.com.",
+        "pattern": "^/[A-Za-z0-9._/-]+$",
+        "maxLength": 255
+      },
+      "vhost": {
+        "type": "string",
+        "description": "The nginx file the site was seen in, a hint only: the agent checks it serves root, and finds the right files itself.",
+        "pattern": "^/etc/nginx/(sites-enabled|sites-available|conf\\.d)/[A-Za-z0-9._-]+$",
+        "maxLength": 255
+      }
+    }
+  },
+  "rollback": "site.enable",
+  "irreversible": false,
+  "health_check": "The helper checks nginx -t passes, no enabled vhost serves the root, and the stopped programs and units are inactive, and puts everything back if not.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "site",
+        "disable",
+        "{root}",
+        "{vhost?}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "site",
+        "disable",
+        "{root}",
+        "{vhost?}"
+      ]
+    },
+    "dry_run_argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "site",
+        "plan",
+        "disable",
+        "{root}",
+        "{vhost?}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "site",
+        "plan",
+        "disable",
+        "{root}",
+        "{vhost?}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent site disable *",
+      "dnf": "/usr/local/bin/bifrost-agent site disable *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}
