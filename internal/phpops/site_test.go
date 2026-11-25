@@ -276,6 +276,13 @@ func TestDisableMovesARegularFileInConfD(t *testing.T) {
 	if got := h.read("etc/nginx/bifrost-disabled/app.conf"); !strings.Contains(got, "app.example.com") {
 		t.Fatalf("held = %q", got)
 	}
+	// Heimdall's unprivileged collector lists the disabled sites from here.
+	if info, _ := os.Stat(h.path("etc/nginx/bifrost-disabled")); info.Mode().Perm() != 0o755 {
+		t.Fatalf("folder mode = %v", info.Mode())
+	}
+	if info, _ := os.Stat(h.path("etc/nginx/bifrost-disabled/app.conf")); info.Mode().Perm() != 0o644 {
+		t.Fatalf("held mode = %v", info.Mode())
+	}
 	if err := h.env().EnableSite(ctx, "/home/acme/app.example.com", ""); err != nil {
 		t.Fatal(err)
 	}
