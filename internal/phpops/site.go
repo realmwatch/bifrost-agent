@@ -21,7 +21,8 @@ import (
 const (
 	// SiteHoldDir holds vhost files that were regular files in
 	// sites-enabled or conf.d while their site is disabled. nginx never
-	// includes it.
+	// includes it. It's 0755 and its files 0644, so Heimdall's collector,
+	// running as an unprivileged user, can list the disabled sites.
 	SiteHoldDir = "/etc/nginx/bifrost-disabled"
 	// SiteRecordDir holds one restore record per disabled site.
 	SiteRecordDir = "/var/lib/bifrost-agent/disabled-sites"
@@ -116,6 +117,9 @@ type recVhost struct {
 	Kind   string `json:"kind"`
 	Target string `json:"target,omitempty"`
 	HeldAt string `json:"held_at,omitempty"`
+	// Mode is a held file's permissions before it was set to 0644, so
+	// Heimdall's unprivileged collector can read it.
+	Mode uint32 `json:"mode,omitempty"`
 }
 
 type recProgram struct {
@@ -593,12 +597,25 @@ func (e *Env) DisableSite(ctx context.Context, root, vhost string) error {
 				return e.failWith(err, steps)
 			}
 			from := e.path(v.path)
+			info, err := os.Stat(from)
+			if err != nil {
+				return e.failWith(err, steps)
+			}
+			mode := info.Mode().Perm()
 			if err := os.Rename(from, e.path(held)); err != nil {
 				return e.failWith(err, steps)
 			}
 			to := e.path(held)
-			steps = append(steps, undo{"moving back " + v.path, func() error { return os.Rename(to, from) }})
-			rv.HeldAt = held
+			steps = append(steps, undo{"moving back " + v.path, func() error {
+				if err := os.Rename(to, from); err != nil {
+					return err
+				}
+				return os.Chmod(from, mode)
+			}})
+			if err := os.Chmod(to, 0o644); err != nil {
+				return e.failWith(err, steps)
+			}
+			rv.HeldAt, rv.Mode = held, uint32(mode)
 			e.say("Moved %s to %s", v.path, held)
 		}
 		record.addVhost(rv)
@@ -797,8 +814,27 @@ func (r *siteRecord) addUnit(u PlanUnit) {
 // real0 is the vhost's path as listed (the link itself, not its target).
 func (v vhostFile) real0(root string) string { return filepath.Join(root, v.path) }
 
+// heldMode is the permissions a held file had before it was disabled,
+// or 0 when the record doesn't say (records from v0.19.0).
+func (r *siteRecord) heldMode(path string) os.FileMode {
+	if r == nil {
+		return 0
+	}
+	for _, v := range r.Vhosts {
+		if v.Path == path {
+			return os.FileMode(v.Mode).Perm()
+		}
+	}
+	return 0
+}
+
 func (e *Env) holdPath(name string) (string, error) {
-	if err := os.MkdirAll(e.path(SiteHoldDir), 0o755); err != nil {
+	dir := e.path(SiteHoldDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	// MkdirAll is subject to the umask, and the folder may predate this.
+	if err := os.Chmod(dir, 0o755); err != nil {
 		return "", err
 	}
 	held := filepath.Join(SiteHoldDir, name)
@@ -984,7 +1020,17 @@ func (e *Env) EnableSite(ctx context.Context, root, vhost string) error {
 			if err := os.Rename(held, path); err != nil {
 				return e.failWith(err, steps)
 			}
-			steps = append(steps, undo{"moving away " + v.Path, func() error { return os.Rename(path, held) }})
+			steps = append(steps, undo{"moving away " + v.Path, func() error {
+				if err := os.Rename(path, held); err != nil {
+					return err
+				}
+				return os.Chmod(held, 0o644)
+			}})
+			if mode := record.heldMode(v.Path); mode != 0 {
+				if err := os.Chmod(path, mode); err != nil {
+					return e.failWith(err, steps)
+				}
+			}
 			e.say("Moved %s back to %s", v.HeldAt, v.Path)
 		}
 	}
