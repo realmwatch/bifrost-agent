@@ -116,3 +116,27 @@ func TestCommandName(t *testing.T) {
 		}
 	}
 }
+
+func TestRefreshKeepsTheLinesNamingTheFailedRepository(t *testing.T) {
+	stderr := "E: Failed to fetch https://ppa.example.com/php/dists/noble/main/binary-amd64/Packages.xz  File has unexpected size (93412 != 93876). Mirror sync in progress? [IP: 192.0.2.10 443]\n" +
+		"   Hashes of expected file:\n    - Filesize:93876 [weak]\n    - SHA256:07b4e0e16e78562315c4a56d7225ec04c1ad0eab357ed04ac64ffbc09e0bc780\n" +
+		"    - SHA1:f0a5ad5d8fc9229f1113cb235cb59c449ecaee0d [weak]\n    - MD5Sum:5d5312f25dceaa30526af2db8b7959c5 [weak]\n" +
+		"   Release file created at: Fri, 27 Nov 2026 16:02:30 +0000\n" +
+		"W: Some index files failed to download. They have been ignored, or old ones used instead.\n" +
+		"E: Some index files failed to download. They have been ignored, or old ones used instead.\n"
+	e := refreshEnv(t, runner.Response{ExitCode: 100, Stderr: stderr})
+
+	out, err := e.RunTool(context.Background(), "pending_updates", map[string]any{"refresh": true, "fallback": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := asJSON(t, out)
+	for _, want := range []string{"Failed to fetch https://ppa.example.com/php/dists/noble/main/binary-amd64/Packages.xz", "Mirror sync in progress?", "E: Some index files failed"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("refresh error lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "SHA256:") {
+		t.Errorf("refresh error keeps the hash detail:\n%s", got)
+	}
+}
