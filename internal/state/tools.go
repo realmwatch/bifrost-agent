@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -238,10 +239,32 @@ func (e *Env) refreshLists(ctx context.Context) error {
 		}
 		return fmt.Errorf("refreshing the package lists: apt is busy: another process (%s) holds %s", holder, m[1])
 	}
-	if tail := stderrTail(errOut); tail != "" {
+	if tail := aptProblems(errOut); tail != "" {
 		return fmt.Errorf("refreshing the package lists: %s exited with status %d: %s", commandName(e.privileged(catalog.PrivilegedReads["pending_updates"][e.PackageManager])), code, tail)
 	}
 	return fmt.Errorf("refreshing the package lists: %s exited with status %d", commandName(e.privileged(catalog.PrivilegedReads["pending_updates"][e.PackageManager])), code)
+}
+
+// aptProblems keeps apt's error and warning lines (E: and W:), which name
+// the repository that failed, and drops the indented hash detail after them,
+// which would otherwise push those lines out of the tail. Without any, it's
+// the tail of stderr.
+func aptProblems(s string) string {
+	kept := []string{}
+	for _, line := range lines(s) {
+		line = strings.TrimSpace(line)
+		if (strings.HasPrefix(line, "E: ") || strings.HasPrefix(line, "W: ")) && !slices.Contains(kept, line) {
+			kept = append(kept, line)
+		}
+	}
+	if len(kept) == 0 {
+		return stderrTail(s)
+	}
+	out := redact.String(strings.Join(kept, "\n"))
+	if len(out) > stderrTailBytes {
+		out = strings.ToValidUTF8(out[:stderrTailBytes], "") + " …"
+	}
+	return out
 }
 
 // unitOf is the systemd unit a process runs in, from /proc/<pid>/cgroup,
