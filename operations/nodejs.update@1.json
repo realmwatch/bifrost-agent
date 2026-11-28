@@ -1,0 +1,50 @@
+{
+  "name": "nodejs.update",
+  "version": 1,
+  "description": "Update /opt/node/NN to the newest release of its major from nodejs.org, verified as nodejs.install does (signed SHASUMS256.txt, SHA-256, safe unpack). It does nothing when the install is already at the newest release. Otherwise it moves the current tree to /opt/node/.NN.previous (replacing an older one), renames the new one into place, restarts the running supervisor programs and systemd units whose command runs /opt/node/NN/bin/node (or whose PATH names its bin directory), waits 10 s and checks each is RUNNING or active with no restart since. If one isn't, it swaps the old tree back, restarts them again and fails. It refuses if /opt/node/NN isn't installed or the release doesn't verify.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "major"
+    ],
+    "properties": {
+      "major": {
+        "type": "string",
+        "description": "The installed Node.js major, two digits, such as 22.",
+        "pattern": "^[0-9]{2}$",
+        "maxLength": 2
+      }
+    }
+  },
+  "rollback": null,
+  "irreversible": false,
+  "health_check": "The helper restarts what runs the install and swaps the old tree back unless each program is RUNNING and each unit active, without restarting, 10 s later.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "update",
+        "{major}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "update",
+        "{major}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent node update *",
+      "dnf": "/usr/local/bin/bifrost-agent node update *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

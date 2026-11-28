@@ -1,0 +1,50 @@
+{
+  "name": "nodejs.restore",
+  "version": 1,
+  "description": "Rollback of nodejs.remove: move the newest backup of /opt/node/NN under /var/backups/node-remove back into place. It refuses if /opt/node/NN exists or there is no backup for that major.",
+  "min_tier": "medium",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "major"
+    ],
+    "properties": {
+      "major": {
+        "type": "string",
+        "description": "The Node.js major to restore, two digits, such as 20.",
+        "pattern": "^[0-9]{2}$",
+        "maxLength": 2
+      }
+    }
+  },
+  "rollback": null,
+  "irreversible": false,
+  "health_check": "The helper confirms /opt/node/NN is back.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "restore",
+        "{major}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "restore",
+        "{major}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent node restore *",
+      "dnf": "/usr/local/bin/bifrost-agent node restore *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

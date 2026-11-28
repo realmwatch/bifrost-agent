@@ -27,6 +27,7 @@ import (
 	"github.com/realmwatch/bifrost-agent/internal/kernelops"
 	"github.com/realmwatch/bifrost-agent/internal/keystore"
 	"github.com/realmwatch/bifrost-agent/internal/nginxops"
+	"github.com/realmwatch/bifrost-agent/internal/nodeops"
 	"github.com/realmwatch/bifrost-agent/internal/nonce"
 	"github.com/realmwatch/bifrost-agent/internal/phpops"
 	"github.com/realmwatch/bifrost-agent/internal/releaseops"
@@ -71,6 +72,16 @@ Commands:
                        Move PHP's apt source from the deprecated ondrej/php
                        PPA to packages.sury.org, print what that would change,
                        or put the PPA back (root, Ubuntu).
+  node report | install NN | update NN | remove NN | restore NN
+                       Node.js majors from nodejs.org at /opt/node/NN, checked
+                       against the release keys compiled in: print what's
+                       installed and what runs node, install one, update it
+                       to its newest release, move it to a backup or back
+                       (root, apt).
+  node switch ROOT FROM TO | default-switch FROM TO
+                       Move one site's supervisor, systemd and cron lines from
+                       one node binary to another, or move NodeSource's host
+                       node from one major to another (root, apt).
   site plan disable|enable ROOT [VHOST] | disable ROOT [VHOST] | enable ROOT [VHOST]
                        Retire a site without deleting anything: take its
                        vhost out of nginx, stop its workers and units and
@@ -125,6 +136,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = cmdTrustedKeys(rest, stdout, stderr)
 	case "php":
 		err = cmdPHP(rest, stdout)
+	case "node":
+		err = cmdNode(rest, stdout)
 	case "site":
 		err = cmdSite(rest, stdout)
 	case "kernel":
@@ -244,6 +257,44 @@ func cmdPHP(args []string, stdout io.Writer) error {
 		backup = args[2]
 	}
 	return e.Restore(ctx, args[1], backup)
+}
+
+// cmdNode runs the Node.js operations through sudo: nodejs.install,
+// nodejs.update, nodejs.remove, nodejs.restore, nodejs.switch_site and
+// nodejs.default_switch, and the node_installs report.
+func cmdNode(args []string, stdout io.Writer) error {
+	n := len(args)
+	valid := n >= 1 && (args[0] == "report" && n == 1 ||
+		(args[0] == "install" || args[0] == "update" || args[0] == "remove" || args[0] == "restore") && n == 2 ||
+		args[0] == "switch" && n == 4 ||
+		args[0] == "default-switch" && n == 3)
+	if !valid {
+		return usageError{"usage: bifrost-agent node report | install NN | update NN | remove NN | restore NN | switch ROOT FROM TO | default-switch FROM TO"}
+	}
+	if os.Geteuid() != 0 {
+		return errors.New("node " + args[0] + " must run as root")
+	}
+	e := &nodeops.Env{Runner: runner.Exec{}, Now: time.Now, Out: stdout}
+	ctx := context.Background()
+	switch args[0] {
+	case "report":
+		r, err := e.Report(ctx)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(r)
+	case "install":
+		return e.Install(ctx, args[1])
+	case "update":
+		return e.Update(ctx, args[1])
+	case "remove":
+		return e.Remove(ctx, args[1])
+	case "restore":
+		return e.Restore(ctx, args[1])
+	case "switch":
+		return e.SwitchSite(ctx, args[1], args[2], args[3])
+	}
+	return e.DefaultSwitch(ctx, args[1], args[2])
 }
 
 // cmdSite runs site.disable and site.enable through sudo, and the

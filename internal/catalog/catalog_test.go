@@ -22,6 +22,7 @@ func TestEmbeddedCatalog(t *testing.T) {
 		"collector.upgrade@1",
 		"kernel.remove@1",
 		"nginx.check@1", "nginx.http2_off@1", "nginx.http2_restore@1", "nginx.source.nginx_org@1", "nginx.source.restore@1",
+		"nodejs.default_switch@1", "nodejs.install@1", "nodejs.remove@1", "nodejs.restore@1", "nodejs.switch_site@1", "nodejs.update@1",
 		"package.hold@1", "package.install@1", "package.refresh@1", "package.unhold@1", "package.upgrade@1",
 		"packages.remove_obsolete@1", "packages.upgrade@1",
 		"php.install@1", "php.remove@1", "php.restore@1", "php.source.restore@1", "php.source.sury_org@1", "php.switch_site@1",
@@ -45,6 +46,8 @@ func TestEmbeddedCatalog(t *testing.T) {
 		"apt.source.retarget@1": TierMedium, "apt.source.disable@1": TierMedium, "apt.source.restore@1": TierMedium,
 		"packages.remove_obsolete@1": TierMedium,
 		"site.disable@1":             TierHigh, "site.enable@1": TierHigh,
+		"nodejs.install@1": TierLow, "nodejs.update@1": TierMedium, "nodejs.remove@1": TierHigh, "nodejs.restore@1": TierMedium,
+		"nodejs.switch_site@1": TierHigh, "nodejs.default_switch@1": TierHigh,
 		"nginx.check@1": TierLow, "nginx.http2_off@1": TierMedium, "nginx.http2_restore@1": TierMedium, "nginx.source.nginx_org@1": TierHigh, "nginx.source.restore@1": TierHigh,
 	}
 	for _, d := range c.Definitions() {
@@ -220,7 +223,7 @@ func TestExport(t *testing.T) {
 	if err := json.Unmarshal(out, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 33 {
+	if doc.CatalogVersion != "0.1.0" || len(doc.Operations) != 39 {
 		t.Fatalf("doc = %+v", doc)
 	}
 	wantKeys := []string{"description", "dry_run", "files_written", "health_check", "irreversible", "min_tier", "name", "params", "rollback", "version"}

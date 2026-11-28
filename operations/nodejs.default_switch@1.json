@@ -1,0 +1,59 @@
+{
+  "name": "nodejs.default_switch",
+  "version": 1,
+  "description": "Move the host's default node (NodeSource's nodejs package at /usr/bin/node) from one major to another: back up NodeSource's apt source (/etc/apt/sources.list.d/nodesource.list or nodesource.sources) and the installed nodejs version under /var/backups/node-default, point the source at deb.nodesource.com/node_TO.x, run apt-get update and install nodejs (downgrades allowed, config files kept), check /usr/bin/node --version is the new major, restart the running supervisor programs and systemd units whose command runs /usr/bin/node or a bare node, and 10 s later check each is RUNNING or active. On any failure it puts the source back, runs apt-get update and reinstalls the recorded nodejs version (or the newest the old source has) and restarts them again. It refuses unless the source names node_FROM.x alone and /usr/bin/node is major FROM from the nodejs package, and does nothing when both already say TO. Side installs under /opt/node are untouched.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "from",
+      "to"
+    ],
+    "properties": {
+      "from": {
+        "type": "string",
+        "description": "The host's current Node.js major, such as 20.",
+        "pattern": "^[0-9]{2}$",
+        "maxLength": 2
+      },
+      "to": {
+        "type": "string",
+        "description": "The major to move it to, such as 22.",
+        "pattern": "^[0-9]{2}$",
+        "maxLength": 2
+      }
+    }
+  },
+  "rollback": "nodejs.default_switch",
+  "irreversible": false,
+  "health_check": "The helper puts the source and the recorded nodejs back unless /usr/bin/node is the new major and every program and unit that runs it is running 10 s later.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "default-switch",
+        "{from}",
+        "{to}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "default-switch",
+        "{from}",
+        "{to}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent node default-switch *",
+      "dnf": "/usr/local/bin/bifrost-agent node default-switch *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

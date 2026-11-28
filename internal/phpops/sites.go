@@ -525,9 +525,9 @@ func (e *Env) cliFiles() []cliFile {
 	return out
 }
 
-// mentionsRoot reports whether line names root as a whole path (not a
+// MentionsRoot reports whether line names root as a whole path (not a
 // longer one that starts with it, like root + ".old").
-func mentionsRoot(line, root string) bool {
+func MentionsRoot(line, root string) bool {
 	for i := 0; ; {
 		j := strings.Index(line[i:], root)
 		if j < 0 {
@@ -551,7 +551,7 @@ func cliUses(files []cliFile, root string) []CLIUse {
 	seen := map[string]bool{}
 	for _, f := range files {
 		for _, line := range f.lines {
-			if isComment(line) || !mentionsRoot(line, root) {
+			if isComment(line) || !MentionsRoot(line, root) {
 				continue
 			}
 			for _, m := range phpCallRe.FindAllStringSubmatch(line, -1) {

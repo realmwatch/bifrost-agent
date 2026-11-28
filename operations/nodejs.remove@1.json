@@ -1,0 +1,50 @@
+{
+  "name": "nodejs.remove",
+  "version": 1,
+  "description": "Remove one side-installed Node.js major by moving /opt/node/NN to /var/backups/node-remove/NN-vX.Y.Z-<UTC time>, from where nodejs.restore puts it back. It refuses if /opt/node/NN isn't installed, a running process's executable is under it, or a file in /etc/supervisor/conf.d, /etc/systemd/system (drop-ins included), /etc/cron.d, /var/spool/cron/crontabs or /etc/crontab, or a pm2 dump (/home/*/.pm2/dump.pm2, /root/.pm2/dump.pm2) names it. It never touches the host's NodeSource node.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "major"
+    ],
+    "properties": {
+      "major": {
+        "type": "string",
+        "description": "The Node.js major to remove, two digits, such as 20.",
+        "pattern": "^[0-9]{2}$",
+        "maxLength": 2
+      }
+    }
+  },
+  "rollback": "nodejs.restore",
+  "irreversible": false,
+  "health_check": "The helper confirms /opt/node/NN is gone and its backup is in place.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "remove",
+        "{major}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "remove",
+        "{major}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent node remove *",
+      "dnf": "/usr/local/bin/bifrost-agent node remove *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

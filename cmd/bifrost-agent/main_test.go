@@ -33,6 +33,11 @@ func TestCommands(t *testing.T) {
 	if code, _, _ := runCLI("enroll"); code != ExitUsage {
 		t.Fatalf("enroll without flags = %d", code)
 	}
+	for _, args := range [][]string{{"node"}, {"node", "install"}, {"node", "switch", "/srv/app", "/usr/bin/node"}, {"node", "default-switch", "20"}, {"node", "bogus", "20"}} {
+		if code, _, errOut := runCLI(args...); code != ExitUsage || !strings.Contains(errOut, "usage: bifrost-agent node") {
+			t.Fatalf("%v = %d %q", args, code, errOut)
+		}
+	}
 	code, out, _ := runCLI("operations", "export")
 	var doc map[string]any
 	if code != 0 || json.Unmarshal([]byte(out), &doc) != nil || doc["catalog_version"] != version.Version {
