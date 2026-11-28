@@ -367,3 +367,26 @@ func toolSitePlan(ctx context.Context, e *Env, args map[string]any) (any, error)
 	}
 	return report, nil
 }
+
+// toolNodeInstalls reports the host's Node.js: NodeSource's /usr/bin/node,
+// the side installs under /opt/node and the supervisor, systemd and cron
+// lines that run node (apt; v0.21.0). The agent's own helper gathers it as
+// root (users' crontabs are private).
+func toolNodeInstalls(ctx context.Context, e *Env, _ map[string]any) (any, error) {
+	if err := e.requirePM(); err != nil {
+		return nil, err
+	}
+	argv, ok := catalog.PrivilegedReads["node_installs"][e.PackageManager]
+	if !ok {
+		return nil, fmt.Errorf("node_installs is only supported on apt hosts")
+	}
+	out, err := e.runOK(ctx, e.privileged(argv)...)
+	if err != nil {
+		return nil, err
+	}
+	var report map[string]any
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		return nil, fmt.Errorf("reading the Node.js report: %w", err)
+	}
+	return report, nil
+}

@@ -276,6 +276,9 @@ func TestCompiledBatchApproval(t *testing.T) {
 			"php.source.sury_org@1", "php.source.restore@1", "php.switch_site@1",
 			"service.start@1", "service.stop@1", "service.enable@1", "service.disable@1",
 			"site.disable@1", "site.enable@1",
+			// From v0.21.0.
+			"nodejs.install@1", "nodejs.update@1", "nodejs.remove@1", "nodejs.restore@1",
+			"nodejs.switch_site@1", "nodejs.default_switch@1",
 		},
 		Rollback: []string{
 			"package.install@1", "package.hold@1", "package.unhold@1",
@@ -283,6 +286,7 @@ func TestCompiledBatchApproval(t *testing.T) {
 			"php.restore@1", "php.source.restore@1", "php.switch_site@1",
 			"service.start@1", "service.stop@1", "service.enable@1", "service.disable@1",
 			"site.disable@1", "site.enable@1",
+			"nodejs.restore@1", "nodejs.switch_site@1", "nodejs.default_switch@1",
 		},
 	}
 	if fmt.Sprint(CompiledBatchApproval) != fmt.Sprint(want) {

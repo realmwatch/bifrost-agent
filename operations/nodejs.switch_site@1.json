@@ -1,0 +1,68 @@
+{
+  "name": "nodejs.switch_site",
+  "version": 1,
+  "description": "Move one site from one node binary to another: in supervisor programs, systemd units (with drop-ins) and cron lines that name a path under the site's root (a program's or unit's command or directory, or the cron line itself) and run the old binary (that path, or a bare node when it is /usr/bin/node), the binary becomes the new one, and in the same programs and units the PATH entry for the old binary's directory moves to the new one. The host default and other sites are untouched. Every file is backed up under /var/backups/node-switch first, keeping mode and owner (a user's crontab stays 0600). If node_modules holds native addons (*.node) it is copied into the backup and npm rebuild runs in the root as its owner with the new node (10 minute limit). Then supervisor rereads and updates, systemd reloads and restarts the changed units that were running, and 10 s later each must be RUNNING or active with no restart since; on any failure every file and node_modules is put back and reloaded. It refuses unless the root is a directory (not /) and the new binary exists and is executable, refuses when nothing under the root runs the old binary (saying so when only pm2 runs the site, which this doesn't move), and does nothing when the site already runs the new one.",
+  "min_tier": "high",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "root",
+      "from",
+      "to"
+    ],
+    "properties": {
+      "root": {
+        "type": "string",
+        "description": "The site's root, such as /home/acme/example.com.",
+        "pattern": "^/[A-Za-z0-9._/-]+$",
+        "maxLength": 255
+      },
+      "from": {
+        "type": "string",
+        "description": "The node binary the site runs now, such as /usr/bin/node or /opt/node/20/bin/node.",
+        "pattern": "^(/usr/bin/node|/opt/node/[0-9]{2}/bin/node|/home/[A-Za-z0-9._-]+/\\.nvm/versions/node/v[0-9]+\\.[0-9]+\\.[0-9]+/bin/node)$",
+        "maxLength": 255
+      },
+      "to": {
+        "type": "string",
+        "description": "The node binary to move it to, already installed, such as /opt/node/22/bin/node.",
+        "pattern": "^(/usr/bin/node|/opt/node/[0-9]{2}/bin/node|/home/[A-Za-z0-9._-]+/\\.nvm/versions/node/v[0-9]+\\.[0-9]+\\.[0-9]+/bin/node)$",
+        "maxLength": 255
+      }
+    }
+  },
+  "rollback": "nodejs.switch_site",
+  "irreversible": false,
+  "health_check": "The helper puts every file and node_modules back unless the reloads pass and every changed program is RUNNING and unit active 10 s later.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "switch",
+        "{root}",
+        "{from}",
+        "{to}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "switch",
+        "{root}",
+        "{from}",
+        "{to}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent node switch *",
+      "dnf": "/usr/local/bin/bifrost-agent node switch *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

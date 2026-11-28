@@ -35,6 +35,18 @@ bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx http2-restore
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx source-restore
 # nginx.source.nginx_org@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx to-nginx-org
+# nodejs.default_switch@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent node default-switch *
+# nodejs.install@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent node install *
+# nodejs.remove@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent node remove *
+# nodejs.restore@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent node restore *
+# nodejs.switch_site@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent node switch *
+# nodejs.update@1
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent node update *
 # php.install@1
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php install *
 # php.remove@1
@@ -81,6 +93,8 @@ bifrost ALL=(root) NOPASSWD: /usr/bin/apt-mark unhold *
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx http2-plan
 # state tool nginx_source (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent nginx source-plan
+# state tool node_installs (read-only)
+bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent node report
 # state tool php_sites (read-only)
 bifrost ALL=(root) NOPASSWD: /usr/local/bin/bifrost-agent php sites
 # state tool php_source (read-only)

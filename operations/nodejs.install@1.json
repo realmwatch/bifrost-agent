@@ -1,0 +1,50 @@
+{
+  "name": "nodejs.install",
+  "version": 1,
+  "description": "Install the newest release of one Node.js major from nodejs.org at /opt/node/NN, alongside the host's NodeSource node, without switching anything to it. It reads nodejs.org's release index, verifies SHASUMS256.txt with gpgv against the Node.js release keys compiled into the agent, downloads the linux tarball for the host (amd64 or arm64, at most 200 MB) and checks its SHA-256 against the signed line, unpacks it (root:root, no group or other write) into /opt/node/.NN.new, checks include/node/node_version.h exists and bin/node --version prints the release, then renames it into place. It refuses if /opt/node/NN already exists, the host isn't apt, amd64 or arm64, the signature or hash doesn't verify (a release signed by a key newer than the agent fails closed), or the tarball has an absolute path, a '..', a symlink out of the tree or an entry that isn't a file, directory or symlink; on any failure it removes .NN.new.",
+  "min_tier": "low",
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "major"
+    ],
+    "properties": {
+      "major": {
+        "type": "string",
+        "description": "The Node.js major, two digits, such as 22.",
+        "pattern": "^[0-9]{2}$",
+        "maxLength": 2
+      }
+    }
+  },
+  "rollback": null,
+  "irreversible": false,
+  "health_check": "The helper checks the unpacked node_version.h and that bin/node --version prints the release before renaming it into place.",
+  "files_written": [],
+  "agent": {
+    "privileged": true,
+    "argv": {
+      "apt": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "install",
+        "{major}"
+      ],
+      "dnf": [
+        "/usr/local/bin/bifrost-agent",
+        "node",
+        "install",
+        "{major}"
+      ]
+    },
+    "sudo": {
+      "apt": "/usr/local/bin/bifrost-agent node install *",
+      "dnf": "/usr/local/bin/bifrost-agent node install *"
+    },
+    "health": {
+      "check": "exit_status",
+      "args": {}
+    }
+  }
+}

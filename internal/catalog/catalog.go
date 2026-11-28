@@ -68,6 +68,10 @@ var PrivilegedReads = map[string]map[string][]string{
 	"php_source": {
 		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "php", "source-plan"},
 	},
+	// node_installs reads the users' crontabs and runs node --version.
+	"node_installs": {
+		PackageManagerApt: {"/usr/local/bin/bifrost-agent", "node", "report"},
+	},
 	// site_plan reads root's crontabs and the disabled sites' records. It
 	// takes the action, root and vhost as arguments (PrivilegedReadArgs).
 	"site_plan": {

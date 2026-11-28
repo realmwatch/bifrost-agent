@@ -207,6 +207,7 @@ func TestRunTool(t *testing.T) {
 		"ss -tulnpH": {Stdout: ssFixture},
 		"/usr/local/bin/bifrost-agent site plan disable /home/acme/example.com":                                       {Stdout: `{"action":"disable","refusal":""}` + "\n"},
 		"/usr/local/bin/bifrost-agent site plan enable /home/acme/example.com /etc/nginx/sites-available/example.com": {Stdout: `{"action":"enable","refusal":""}` + "\n"},
+		"/usr/local/bin/bifrost-agent node report":                                                                    {Stdout: `{"default":{"path":"/usr/bin/node","version":"22.11.0","major":"22","source":"nodesource"},"installs":[{"path":"/opt/node/20","version":"20.18.1","major":"20"}],"uses":[{"kind":"systemd","file":"/etc/systemd/system/app.service","name":"app.service","binary":"/opt/node/20/bin/node","line":"Environment=API_TOKEN=abc123"}]}` + "\n"},
 		"who": {Stdout: whoFixture},
 	}}
 	e := testEnv(t, "apt", fake)
@@ -236,6 +237,9 @@ func TestRunTool(t *testing.T) {
 		{"site_plan", `{"action":"delete","root":"/home/acme/example.com"}`, "", "bad args"},
 		{"site_plan", `{"action":"disable","root":"/home/acme/example.com","vhost":"/etc/passwd"}`, "", "bad args"},
 		{"site_plan", `{"action":"disable","root":"-rf"}`, "", "bad args"},
+		{"node_installs", `{}`, `"installs":[{"major":"20","path":"/opt/node/20","version":"20.18.1"}]`, ""},
+		{"node_installs", `{}`, `"line":"Environment=API_TOKEN=[REDACTED]"`, ""},
+		{"node_installs", `{"x":1}`, "", "bad args"},
 		{"services_needing_restart", `{}`, `{"services":["nginx.service","php8.3-fpm.service"]}`, ""},
 		{"service_status", `{"unit":"nginx.service"}`, `"active_state":"active"`, ""},
 		{"service_status", `{"unit":"nginx"}`, "", "bad args"},
@@ -395,7 +399,7 @@ func TestFactsAndDetect(t *testing.T) {
 }
 
 func TestToolNames(t *testing.T) {
-	want := []string{"boot", "disk", "journal", "memory", "nginx_http2", "nginx_source", "os", "packages", "pending_updates", "php_sites", "php_source", "ports", "release_leftovers", "service_status", "services_needing_restart", "sessions", "site_plan"}
+	want := []string{"boot", "disk", "journal", "memory", "nginx_http2", "nginx_source", "node_installs", "os", "packages", "pending_updates", "php_sites", "php_source", "ports", "release_leftovers", "service_status", "services_needing_restart", "sessions", "site_plan"}
 	if got := ToolNames(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tools = %v", got)
 	}

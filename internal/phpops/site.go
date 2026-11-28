@@ -265,7 +265,7 @@ func supervisorPrograms(lines []string, root string) []program {
 		}
 		switch strings.ToLower(m[1]) {
 		case "command", "directory":
-			p.matchy = p.matchy || mentionsRoot(m[2], root)
+			p.matchy = p.matchy || MentionsRoot(m[2], root)
 		case "autostart":
 			p.autostartLine = i
 			p.autostartOff = strings.EqualFold(m[2], "false")
@@ -419,7 +419,7 @@ func (e *Env) disablePlan(ctx context.Context, root, vhost string) (*SitePlan, [
 		switch f.kind {
 		case "cron":
 			for _, line := range f.lines {
-				if !isComment(line) && mentionsRoot(line, root) {
+				if !isComment(line) && MentionsRoot(line, root) {
 					p.Cron = append(p.Cron, PlanCron{File: f.path, Line: line})
 				}
 			}
@@ -474,7 +474,7 @@ func unitMentions(lines []string, root string) bool {
 		if isComment(t) {
 			continue
 		}
-		if k, v, ok := strings.Cut(t, "="); ok && (strings.HasPrefix(k, "ExecStart") || k == "WorkingDirectory") && mentionsRoot(strings.TrimLeft(v, "-@!+:"), root) {
+		if k, v, ok := strings.Cut(t, "="); ok && (strings.HasPrefix(k, "ExecStart") || k == "WorkingDirectory") && MentionsRoot(strings.TrimLeft(v, "-@!+:"), root) {
 			return true
 		}
 	}
@@ -644,7 +644,7 @@ func (e *Env) DisableSite(ctx context.Context, root, vhost string) error {
 		ed := cronEdits[file]
 		lines := strings.Split(string(ed.old), "\n")
 		for i, line := range lines {
-			if !isComment(line) && mentionsRoot(line, root) {
+			if !isComment(line) && MentionsRoot(line, root) {
 				lines[i] = CronMarker + line
 				ed.changes++
 			}
@@ -928,7 +928,7 @@ func (e *Env) enablePlan(ctx context.Context, root, vhost string) (*SitePlan, *s
 			continue
 		}
 		for _, line := range f.lines {
-			if rest, ok := strings.CutPrefix(line, CronMarker); ok && mentionsRoot(rest, root) {
+			if rest, ok := strings.CutPrefix(line, CronMarker); ok && MentionsRoot(rest, root) {
 				p.Cron = append(p.Cron, PlanCron{File: f.path, Line: rest})
 			}
 		}
@@ -1051,7 +1051,7 @@ func (e *Env) EnableSite(ctx context.Context, root, vhost string) error {
 		}
 		lines := strings.Split(string(ed.old), "\n")
 		for i, line := range lines {
-			if rest, ok := strings.CutPrefix(line, CronMarker); ok && mentionsRoot(rest, root) {
+			if rest, ok := strings.CutPrefix(line, CronMarker); ok && MentionsRoot(rest, root) {
 				lines[i] = rest
 				ed.changes++
 			}

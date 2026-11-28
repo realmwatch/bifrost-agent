@@ -198,7 +198,7 @@ func (e *Env) cliEdits(root, from, to string, bare bool) []edit {
 		changed := 0
 		lines := append([]string{}, f.lines...)
 		for i, line := range lines {
-			if isComment(line) || !mentionsRoot(line, root) {
+			if isComment(line) || !MentionsRoot(line, root) {
 				continue
 			}
 			n := phpCallRe.ReplaceAllStringFunc(line, func(m string) string {
