@@ -62,7 +62,9 @@ func (e *Env) Remove(ctx context.Context, major string) error {
 	return nil
 }
 
-// Restore moves the newest backup of NN back to /opt/node/NN.
+// Restore moves the newest backup of NN back to /opt/node/NN. It is the
+// rollback of Remove, so it also runs after Remove refused: when
+// /opt/node/NN exists it changes nothing and succeeds, like php.restore.
 func (e *Env) Restore(ctx context.Context, major string) error {
 	if err := checkMajor(major); err != nil {
 		return err
@@ -73,7 +75,8 @@ func (e *Env) Restore(ctx context.Context, major string) error {
 	dir := installDir(major)
 	full := e.path(dir)
 	if _, err := os.Lstat(full); err == nil {
-		return fmt.Errorf("refused: %s exists; nothing to restore over it", dir)
+		e.say("%s is installed: nothing was removed, nothing to restore", dir)
+		return nil
 	}
 	entries, err := os.ReadDir(e.path(removeBackupRoot))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {

@@ -506,8 +506,12 @@ func TestRemoveAndRestore(t *testing.T) {
 	h := newHost(t)
 	h.installTree("20.18.1")
 	ctx := context.Background()
-	if err := h.env.Restore(ctx, "20"); err == nil || !strings.Contains(err.Error(), "exists") {
-		t.Fatalf("restore over an install: %v", err)
+	// After a refused remove, the rollback changes nothing and succeeds.
+	if err := h.env.Restore(ctx, "20"); err != nil || !strings.Contains(h.out.String(), "nothing to restore") {
+		t.Fatalf("restore over an install: %v\n%s", err, h.out.String())
+	}
+	if v, _ := h.env.headerVersion(filepath.Join(h.root, "opt/node/20")); v != "20.18.1" {
+		t.Fatalf("install changed: %q", v)
 	}
 	if err := h.env.Remove(ctx, "20"); err != nil {
 		t.Fatal(err)

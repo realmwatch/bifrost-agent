@@ -1,7 +1,7 @@
 {
   "name": "nodejs.restore",
   "version": 1,
-  "description": "Rollback of nodejs.remove: move the newest backup of /opt/node/NN under /var/backups/node-remove back into place. It refuses if /opt/node/NN exists or there is no backup for that major.",
+  "description": "Rollback of nodejs.remove: move the newest backup of /opt/node/NN under /var/backups/node-remove back into place. When /opt/node/NN already exists (the remove refused, so nothing was removed) it changes nothing and succeeds. It refuses when /opt/node/NN is missing and there is no backup for that major.",
   "min_tier": "medium",
   "params": {
     "type": "object",
@@ -20,7 +20,7 @@
   },
   "rollback": null,
   "irreversible": false,
-  "health_check": "The helper confirms /opt/node/NN is back.",
+  "health_check": "The helper confirms /opt/node/NN is back, or was never removed.",
   "files_written": [],
   "agent": {
     "privileged": true,
